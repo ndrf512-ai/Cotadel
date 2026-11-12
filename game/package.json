@@ -1,0 +1,19 @@
+{
+  "name": "citadel",
+  "version": "0.1.0",
+  "description": "Цитадель — симулятор командования осаждённым гарнизоном (PS1-стиль)",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --serve"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  },
+  "private": true,
+  "type": "module"
+}

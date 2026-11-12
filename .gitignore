@@ -1,0 +1,5 @@
+android/.tools/
+android/build/
+game/node_modules/
+game/dist/
+__pycache__/

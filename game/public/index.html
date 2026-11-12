@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Цитадель</title>
+<style>
+  :root { --paper:#d9cfb4; --ink:#2a2620; --ink2:#5b5244; --red:#8a2018; }
+  html,body { margin:0; height:100%; background:#000; overflow:hidden; touch-action:none;
+    -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  body { font-family:"Courier New","Droid Sans Mono",monospace; color:#cfc6ae; }
+  #game { position:fixed; inset:0; width:100%; height:100%; image-rendering:pixelated; image-rendering:crisp-edges; }
+  #scan { position:fixed; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0 1px,transparent 1px 3px);
+    mix-blend-mode:multiply; }
+  #vig { position:fixed; inset:0; pointer-events:none; background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.55) 100%); }
+  #fade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none; transition:opacity .6s; }
+  #cross { position:fixed; left:50%; top:50%; width:4px; height:4px; margin:-2px 0 0 -2px; background:#d8cfb0; opacity:.55; pointer-events:none; }
+  #cross.hot { background:#f0c060; opacity:.95; width:6px; height:6px; margin:-3px 0 0 -3px; }
+  #prompt { position:fixed; left:0; right:0; top:calc(50% + 18px); text-align:center; font-size:14px; letter-spacing:1px;
+    color:#e6dcc0; text-shadow:1px 1px 0 #000,0 0 4px #000; pointer-events:none; text-transform:uppercase; }
+  #subs { position:fixed; left:8%; right:8%; bottom:7%; text-align:center; font-size:15px; color:#efe6c8;
+    text-shadow:1px 1px 0 #000,0 0 6px #000; pointer-events:none; line-height:1.35; }
+  #subs b { color:#e9b860; font-weight:normal; }
+  #paper { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.35); z-index:5; }
+  #paper.on { display:flex; }
+  body.paper #subs, body.paper #prompt, body.paper #cross { display:none; }
+  body.touch #subs { left:24%; right:24%; bottom:4%; font-size:13px; }
+  .sheet { position:relative; width:min(640px,92vw); max-height:86vh; overflow:auto; box-sizing:border-box; padding:20px 24px 16px;
+    background:var(--paper); color:var(--ink); box-shadow:0 6px 0 #0006, 0 0 0 2px #8a7f66 inset;
+    background-image:
+      radial-gradient(circle at 20% 30%,rgba(120,90,40,.10),transparent 40%),
+      radial-gradient(circle at 80% 70%,rgba(80,60,30,.12),transparent 45%),
+      repeating-linear-gradient(0deg,rgba(0,0,0,.035) 0 1px,transparent 1px 4px);
+    font-size:15px; line-height:1.45; transform:rotate(-.4deg); scrollbar-width:thin; }
+  .sheet .hdr { font-size:12px; letter-spacing:2px; color:var(--ink2); text-transform:uppercase; border-bottom:1px dashed #7a6f58; padding-bottom:4px; margin-bottom:10px; display:flex; justify-content:space-between; gap:12px; }
+  .sheet .who { font-weight:bold; letter-spacing:1px; }
+  .sheet .txt { white-space:pre-wrap; min-height:2.6em; }
+  .sheet .txt .dim { color:var(--ink2); }
+  .sheet .txt .red { color:var(--red); }
+  .sheet .opts { margin-top:14px; display:flex; flex-direction:column; gap:6px; }
+  .sheet .opts.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); }
+  .sheet button { font:inherit; text-align:left; background:rgba(255,255,255,.18); color:var(--ink); border:1px solid #7a6f58;
+    padding:7px 10px; cursor:pointer; border-radius:0; }
+  .sheet button:hover, .sheet button:focus { background:rgba(60,40,10,.15); outline:none; }
+  .sheet button.sel { background:#2a2620; color:var(--paper); }
+  .sheet button.back { color:var(--ink2); border-style:dashed; }
+  .sheet button:disabled { opacity:.45; cursor:default; }
+  .sheet table { border-collapse:collapse; width:100%; font-size:14px; }
+  .sheet td { border-bottom:1px dotted #8a7f66; padding:3px 4px; vertical-align:top; }
+  .sheet .stamp { position:absolute; right:18px; top:34px; border:3px solid var(--red); color:var(--red); padding:2px 8px;
+    transform:rotate(-12deg); font-weight:bold; letter-spacing:2px; opacity:.7; font-size:13px; }
+  .sheet .label { font-size:12px; color:var(--ink2); letter-spacing:1px; text-transform:uppercase; margin:10px 0 4px; }
+  .sheet .row { display:flex; flex-wrap:wrap; gap:6px; }
+  .sheet .row button { flex:1 1 auto; text-align:center; }
+  #title { position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#050505;
+    text-align:center; padding:20px; box-sizing:border-box; }
+  #title h1 { font-size:clamp(34px,9vw,72px); letter-spacing:.3em; margin:0 0 6px; color:#c9bd98; text-shadow:3px 3px 0 #3a1410; font-weight:bold; }
+  #title .sub { color:#7d745f; letter-spacing:.2em; font-size:13px; margin-bottom:24px; text-transform:uppercase; }
+  #title p { max-width:560px; color:#9a907a; font-size:14px; line-height:1.5; margin:0 0 20px; }
+  #title button { font:inherit; font-size:18px; letter-spacing:4px; padding:10px 34px; background:#1a1712; color:#d9cfb4; border:2px solid #6b5f48; cursor:pointer; text-transform:uppercase; }
+  #title button:hover { background:#2a241a; }
+  #title .ctl { margin-top:18px; font-size:12px; color:#5f584a; line-height:1.6; }
+  #touch { position:fixed; inset:0; z-index:3; display:none; }
+  #touch.on { display:block; }
+  #stick { position:absolute; left:6vw; bottom:8vh; width:120px; height:120px; border-radius:50%; border:2px solid rgba(220,210,180,.25); background:rgba(0,0,0,.15); }
+  #knob { position:absolute; left:40px; top:40px; width:40px; height:40px; border-radius:50%; background:rgba(220,210,180,.35); }
+  #actbtn { position:absolute; right:6vw; bottom:10vh; width:78px; height:78px; border-radius:50%; border:2px solid rgba(240,200,110,.5);
+    background:rgba(40,30,10,.35); color:#e6d6a8; font:inherit; font-size:12px; letter-spacing:1px; }
+  #actbtn.hot { background:rgba(120,80,20,.55); }
+  #menubtn { position:absolute; right:10px; top:10px; width:40px; height:30px; background:rgba(0,0,0,.3); border:1px solid #5f584a; color:#bfb59a; font:inherit; }
+  #pause { position:fixed; inset:0; z-index:8; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.6); }
+  #pause.on { display:flex; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="scan"></div>
+<div id="vig"></div>
+<div id="cross"></div>
+<div id="prompt"></div>
+<div id="subs"></div>
+<div id="touch"><div id="stick"><div id="knob"></div></div><button id="actbtn">ДЕЙСТВ.</button><button id="menubtn">II</button></div>
+<div id="paper"><div class="sheet" id="sheet"></div></div>
+<div id="pause"><div class="sheet" id="pausesheet"></div></div>
+<div id="fade"></div>
+<div id="title">
+  <h1>ЦИТАДЕЛЬ</h1>
+  <div class="sub">осаждённый гарнизон · командный пункт</div>
+  <p>Вы — капитан. Кольцо окружения замкнулось сегодня утром. Четыре взвода, инженеры, медпункт и сорок восемь часов до обещанной деблокады.<br><br>Вы не видите боя. Вы слышите его — по телефону, по радио, из уст людей, которым приходится доверять.</p>
+  <button id="startbtn">Принять командование</button>
+  <div class="ctl">ПК: WASD — шаг · мышь — взгляд · ЛКМ / E — действие · Esc — меню<br>Телефон: левый стик — шаг · правая половина — взгляд · кнопка — действие</div>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
