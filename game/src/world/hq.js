@@ -162,9 +162,10 @@ export function buildHQ(scene, tex, lights) {
   for (let i = 0; i < 6; i++) swLamps.push(box(sw, 0.04, 0.04, 0.02, -0.15 + (i % 3) * 0.15, 0.3 - Math.floor(i / 3) * 0.12, -0.155, mat({ color: 0x302010, emissive: 0 })));
   W.refs.swLamps = swLamps;
   W.solids.push([5.15, 6, -4, -1.2]);
-  // табурет
-  box(root, 0.35, 0.45, 0.35, 4.75, 0.22, -2.6, mWood);
-  W.solids.push([4.5, 5.0, -2.9, -2.3]);
+  // табуреты связистов
+  box(root, 0.35, 0.45, 0.35, 4.85, 0.22, -2.1, mWood);
+  box(root, 0.35, 0.45, 0.35, 4.85, 0.22, -3.2, mWood);
+  W.solids.push([4.6, 5.1, -3.45, -1.85]);
   W.refs.commLamp = lights.add(new THREE.Vector3(4.6, 1.9, -2.5), 0xffaa60, 4.2, 0.75);
   W.refs.commLamp.flicker = 0.12;
   cyl(root, 0.06, 0.08, 0.12, 6, 4.6, 2.05, -2.5, mat({ color: 0xffd080, emissive: 0xd09040 }));
@@ -184,10 +185,6 @@ export function buildHQ(scene, tex, lights) {
   W.solids.push([-2.6, -2.0, 2.25, 3]);
   W.refs.anteLamp = lights.add(new THREE.Vector3(0, 1.9, 1.5), 0xffa050, 3.6, 0.5);
   W.refs.anteLamp.flicker = 0.1;
-  // ящики с патронами, мешки
-  box(root, 0.6, 0.35, 0.4, 1.9, 0.17, 2.7, mCrate);
-  box(root, 0.6, 0.35, 0.4, 1.3, 0.17, 2.7, mCrate, { ry: 0.2 });
-  W.solids.push([1.0, 2.3, 2.45, 3]);
   // занавес между предбанником и КП
   const curtain = plane(root, 0.65, 1.9, -0.37, 1.0, 0.02, mat({ map: tex.tarp, side: THREE.DoubleSide }), { sx: 1, sy: 2 });
   curtain.rotation.y = 0.4; curtain.position.x = -0.85;
@@ -197,6 +194,8 @@ export function buildHQ(scene, tex, lights) {
   box(door, 0.1, 0.1, 0.1, 0.06, 1.0, 1.05, mMetal);
   door.rotation.y = 1.45;
   W.refs.door = door;
+
+  furnish(root, W, lights, tex, { mWood, mLog, mDark, mMetal, mMetalD, mCrate, mPaper, mBlanket, mCloth });
 
   // ---- амбразура: мешки на подоконнике, насыпь на крыше ----
   box(root, 1.2, 0.18, 0.5, 1.1, 1.26, -4.3, mBag);
@@ -224,8 +223,11 @@ export function buildHQ(scene, tex, lights) {
     visitor2: new THREE.Vector3(0.4, 0, -0.85),
     anteMid: new THREE.Vector3(0, 0, 1.4),
     curtain: new THREE.Vector3(0, 0, 0.3),
-    olya: new THREE.Vector3(4.75, 0, -2.6),
-    orlov: new THREE.Vector3(-0.9, 0, -2.0),
+    olya: new THREE.Vector3(4.85, 0, -2.1),
+    radioOp: new THREE.Vector3(4.85, 0, -3.2),
+    orlov: new THREE.Vector3(-1.0, 0, 2.05),
+    orlovMap: new THREE.Vector3(-0.95, 0, -2.0),
+    clerk: new THREE.Vector3(1.0, 0, 2.05),
     gusev: new THREE.Vector3(-1.4, 0, 2.2),
     wounded: [[-1.6, 0.9], [-0.6, 0.9], [0.4, 0.9], [1.4, 0.9], [-1.6, 2.2], [0.4, 2.2]],
   };
@@ -236,4 +238,84 @@ function addI(W, obj, id, label, pad = 0) {
   obj.userData.interact = { id, label };
   obj.traverse?.((c) => { c.userData.interact = { id, label }; });
   W.interact.push(obj);
+}
+
+/** Обустройство штаба: мебель, лампы, бумаги, быт. */
+function furnish(root, W, lights, tex, m) {
+  const mLamp = mat({ color: 0xffd080, emissive: 0xe0a050 });
+  const mGreen = M('greenShade', { color: 0x2e4a30 });
+  const mBinder = [M('b1', { color: 0x5a3a28 }), M('b2', { color: 0x3a4a5a }), M('b3', { color: 0x6a5a30 })];
+  const desk = (x, z, label) => {
+    box(root, 1.2, 0.06, 0.6, x, 0.76, z, m.mWood);
+    for (const [dx, dz] of [[-0.55, -0.25], [0.55, -0.25], [-0.55, 0.25], [0.55, 0.25]]) box(root, 0.06, 0.76, 0.06, x + dx, 0.38, z + dz, m.mLog);
+    box(root, 0.36, 0.42, 0.36, x, 0.21, z - 0.55, m.mWood); // табурет
+    W.solids.push([x - 0.65, x + 0.65, z - 0.32, z + 0.32]);
+  };
+  // стол начальника штаба (предбанник), с лампой под зелёным абажуром
+  desk(-1.0, 2.6);
+  for (let i = 0; i < 5; i++) box(root, 0.22, 0.01, 0.3, -1.25 + i * 0.05, 0.8 + i * 0.006, 2.55 + (i % 2) * 0.03, m.mPaper, { ry: i * 0.12 });
+  cyl(root, 0.03, 0.03, 0.25, 5, -0.6, 0.92, 2.75, m.mMetalD);
+  cyl(root, 0.04, 0.11, 0.1, 6, -0.6, 1.07, 2.75, mGreen);
+  box(root, 0.06, 0.04, 0.06, -0.6, 1.0, 2.75, mLamp);
+  const l1 = lights.add(new THREE.Vector3(-0.6, 1.0, 2.6), 0xffc070, 2.6, 0.75); l1.flicker = 0.05;
+  cyl(root, 0.035, 0.03, 0.08, 6, -1.45, 0.83, 2.45, M('mug', { color: 0x5a6a5a }));
+  const orlovDesk = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.3, 0.6), m.mDark); orlovDesk.visible = false; orlovDesk.position.set(-1.0, 0.9, 2.6); root.add(orlovDesk);
+  // стол писаря с пишущей машинкой
+  desk(1.0, 2.6);
+  box(root, 0.36, 0.12, 0.3, 1.0, 0.85, 2.6, m.mMetalD);
+  box(root, 0.3, 0.12, 0.02, 1.0, 0.96, 2.72, m.mPaper, { rx: -0.3 });
+  box(root, 0.25, 0.08, 0.32, 1.45, 0.83, 2.55, mBinder[1]);
+  const l2 = lights.add(new THREE.Vector3(1.3, 1.1, 2.6), 0xffb060, 2.2, 0.5); l2.flicker = 0.08;
+  cyl(root, 0.04, 0.05, 0.12, 6, 1.35, 0.85, 2.75, mLamp);
+  // полка с папками над койкой
+  box(root, 1.0, 0.04, 0.25, -2.4, 1.55, -3.85, m.mWood);
+  box(root, 1.0, 0.04, 0.25, -2.4, 1.9, -3.85, m.mWood);
+  for (let i = 0; i < 8; i++) box(root, 0.07, 0.28, 0.2, -2.8 + i * 0.1, 1.71, -3.85, mBinder[i % 3], { rz: i === 7 ? 0.3 : 0 });
+  for (let i = 0; i < 5; i++) box(root, 0.08, 0.25, 0.2, -2.75 + i * 0.12, 2.04, -3.85, mBinder[(i + 1) % 3]);
+  // доска личного состава на западной стене
+  const bc = document.createElement('canvas'); bc.width = 48; bc.height = 32;
+  const bx = bc.getContext('2d');
+  bx.fillStyle = '#3a3226'; bx.fillRect(0, 0, 48, 32);
+  bx.fillStyle = '#d8d0b8';
+  for (let r = 0; r < 5; r++) { bx.fillRect(3, 4 + r * 5, 10, 3); bx.fillRect(16, 4 + r * 5, 14, 3); bx.fillStyle = r % 2 ? '#c06040' : '#d8d0b8'; bx.fillRect(33, 4 + r * 5, 4, 3); bx.fillStyle = '#d8d0b8'; }
+  const board = plane(root, 1.1, 0.75, -2.93, 1.45, -1.6, mat({ map: toTex(bc, false) }), { ry: Math.PI / 2, sx: 1, sy: 1 });
+  box(root, 0.04, 0.8, 1.16, -2.95, 1.45, -1.6, m.mLog);
+  board.userData.interact = { id: 'personnel', label: 'Доска личного состава' }; W.interact.push(board);
+  // табуреты у стола с картой
+  box(root, 0.34, 0.42, 0.34, 0.95, 0.21, -2.95, m.mWood);
+  box(root, 0.34, 0.42, 0.34, -1.05, 0.21, -1.15, m.mWood);
+  // карандаши, линейка, бумаги на карте
+  box(root, 0.3, 0.005, 0.03, 0.25, 0.892, -1.75, M('ruler', { color: 0xc0a060 }), { ry: 0.4 });
+  for (let i = 0; i < 3; i++) box(root, 0.12, 0.012, 0.012, -0.2 + i * 0.05, 0.895, -2.35, M('pencil', { color: [0x8a2018, 0x2a3a7a, 0x3a3a30][i] }), { ry: i * 0.5 });
+  box(root, 0.2, 0.01, 0.26, 0.55, 0.893, -2.3, m.mPaper, { ry: -0.2 });
+  // личные вещи на боковом столе: фотография, бритва, кружка, лампа
+  box(root, 0.1, 0.13, 0.02, 2.7, 0.9, -3.65, M('frame', { color: 0x3a2a1a }), { rx: -0.2 });
+  box(root, 0.08, 0.1, 0.005, 2.7, 0.9, -3.638, M('photo', { color: 0xb0a890 }), { rx: -0.2 });
+  cyl(root, 0.035, 0.03, 0.08, 6, 2.2, 0.87, -3.25, M('mug2', { color: 0x6a5a4a }));
+  const l3 = lights.add(new THREE.Vector3(2.3, 1.15, -3.4), 0xffb868, 2.2, 0.55); l3.flicker = 0.06;
+  cyl(root, 0.06, 0.05, 0.14, 6, 2.0, 0.9, -3.6, mLamp);
+  box(root, 0.18, 0.24, 0.01, 2.2, 1.55, -3.93, M('mirror', { color: 0x8a9a9a }));
+  // вешалка с шинелями и каской у двери
+  box(root, 0.6, 0.05, 0.05, -2.92, 1.75, 0.6, m.mLog, { ry: Math.PI / 2 });
+  box(root, 0.08, 0.9, 0.42, -2.82, 1.3, 0.45, M('coat2', { map: tex.cloth, color: 0x8a8068 }));
+  const helm = new THREE.Mesh(new THREE.SphereGeometry(0.15, 7, 3, 0, Math.PI * 2, 0, Math.PI / 2), M('helmHook', { color: 0x4c5440 }));
+  helm.position.set(-2.85, 1.68, 0.85); root.add(helm);
+  // чайник на печке, дрова
+  cyl(root, 0.1, 0.12, 0.14, 7, -2.3, 0.65, 2.45, m.mMetal);
+  for (let i = 0; i < 5; i++) cyl(root, 0.05, 0.05, 0.5, 5, -2.75 + (i % 3) * 0.1, 0.05 + Math.floor(i / 3) * 0.1, 1.85, m.mLog, { rz: Math.PI / 2 });
+  // половик в комнате командира
+  box(root, 1.4, 0.01, 0.9, 0.2, 0.01, -0.9, m.mBlanket);
+  // кабели вдоль стен (от коммутатора)
+  const mCable = M('cable', { color: 0x1a1a18 });
+  box(root, 0.02, 0.02, 3.0, 5.95, 2.0, -2.5, mCable);
+  box(root, 3.0, 0.02, 0.02, 1.5, 2.05, -3.94, mCable);
+  box(root, 0.02, 0.02, 3.6, 2.95, 2.05, -2.2, mCable);
+  // ящики в углу комнаты командира и патронные цинки
+  box(root, 0.5, 0.25, 0.3, 2.6, 1.0, -0.45, m.mCrate, { ry: 0.3 });
+  // плакат и график дежурств в предбаннике
+  plane(root, 0.5, 0.65, 0.0, 1.5, 2.94, mat({ map: tex.doc }), { ry: Math.PI, sx: 1, sy: 1 });
+  plane(root, 0.4, 0.5, 2.94, 1.5, 0.9, mat({ map: tex.doc }), { ry: -Math.PI / 2, sx: 1, sy: 1 });
+  // морзянка и вторая рация
+  box(root, 0.12, 0.03, 0.08, 5.35, 0.85, -2.85, m.mMetalD);
+  box(root, 0.3, 0.25, 0.25, 5.65, 0.96, -3.7, M('radio2', { map: tex.radio, color: 0x9a9a80 }));
 }

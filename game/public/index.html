@@ -69,6 +69,7 @@
     background:rgba(40,30,10,.35); color:#e6d6a8; font:inherit; font-size:12px; letter-spacing:1px; }
   #actbtn.hot { background:rgba(120,80,20,.55); }
   #mapbtn { position:absolute; right:60px; top:10px; height:30px; padding:0 10px; background:rgba(0,0,0,.3); border:1px solid #5f584a; color:#bfb59a; font:inherit; font-size:12px; }
+  #staffbtn { position:absolute; right:140px; top:10px; height:30px; padding:0 10px; background:rgba(0,0,0,.3); border:1px solid #5f584a; color:#bfb59a; font:inherit; font-size:12px; }
   #menubtn { position:absolute; right:10px; top:10px; width:40px; height:30px; background:rgba(0,0,0,.3); border:1px solid #5f584a; color:#bfb59a; font:inherit; }
   #pause { position:fixed; inset:0; z-index:8; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.6); }
   #pause.on { display:flex; }
@@ -81,7 +82,7 @@
 <div id="cross"></div>
 <div id="prompt"></div>
 <div id="subs"></div>
-<div id="touch"><div id="stick"><div id="knob"></div></div><button id="actbtn">ДЕЙСТВ.</button><button id="menubtn">II</button><button id="mapbtn">КАРТА</button></div>
+<div id="touch"><div id="stick"><div id="knob"></div></div><button id="actbtn">ДЕЙСТВ.</button><button id="menubtn">II</button><button id="mapbtn">КАРТА</button><button id="staffbtn">ЛЮДИ</button></div>
 <div id="paper"><div class="sheet" id="sheet"></div></div>
 <div id="pause"><div class="sheet" id="pausesheet"></div></div>
 <div id="fade"></div>
@@ -90,7 +91,7 @@
   <div class="sub">осаждённый гарнизон · командный пункт</div>
   <p>Вы — капитан. Кольцо окружения замкнулось сегодня утром. Четыре взвода, инженеры, медпункт и сорок восемь часов до обещанной деблокады.<br><br>Это ваша оборона: траншеи, блиндажи, люди. Обходите позиции, говорите с командирами, доверяйте штабу — и решайте.</p>
   <button id="startbtn">Принять командование</button>
-  <div class="ctl">ПК: WASD — шаг · Shift — бегом · мышь — взгляд · ЛКМ / E — действие · M — планшет · Esc — меню<br>Телефон: левый стик — шаг (до упора — бегом) · правая половина — взгляд · кнопки — действие и карта</div>
+  <div class="ctl">ПК: WASD — шаг · Shift — бегом · мышь — взгляд · ЛКМ / E — действие · M — планшет · P — личный состав · Esc — меню<br>Телефон: левый стик — шаг (до упора — бегом) · правая половина — взгляд · кнопки — действие и карта</div>
 </div>
 <script src="game.js"></script>
 </body>

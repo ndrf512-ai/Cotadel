@@ -32,7 +32,7 @@ export class Sim {
       this.platoons[p.id] = {
         ...p, maxMen: p.men, wounded: 0, killed: 0, where: p.sector ? { type: 'sector', s: p.sector } : { type: 'res', loc: p.loc },
         onLineSince: START_T - (p.sector ? 26 * 60 : 0), order: { task: 'hold', priority: null, freedom: null }, saveAmmo: false,
-        raid: null, counter: null, handover: 0, supportFor: null,
+        raid: null, counter: null, handover: 0, supportFor: null, auth: { withdraw: 'inherit', initiative: 'inherit' }, known: null,
       };
     }
     this.sectors = {};
@@ -43,6 +43,7 @@ export class Sim {
         enemyHold: 0, mines: 0, op: null, shelledUntil: 0, noise: 0,
       };
     }
+    for (const p of Object.values(this.platoons)) p.known = { t: START_T - 30, how: 'доклад', men: p.men, ammo: p.ammo, fatigue: p.fatigue, morale: p.morale, wounded: 0, killed: 0 };
     this.depot = { ammo: 14, meds: 10, food: 2.6, water: 2.0, mat: 30, well: true, ration: 1 };
     this.med = { light: 6, severe: 3, healing: [], priority: 'return', fatigue: 20, dead: 0, returned: 0, staff: 6, sanitarsOut: null };
     this.eng = { men: 16, task: null, mat: 0 };
@@ -209,7 +210,8 @@ export class Sim {
       if (op.ratio > o.askReserveAt && !this.recentlyAsked(o, 'reserve', 50)) this.askReserve(p, sec);
       return;
     }
-    const free = ord.freedom === 'free' || ord.conditional || this.staff.deleg.withdraw === 'commanders' || (ord.freedom !== 'strict' && o.autonomy >= 35);
+    let free = ord.freedom === 'free' || ord.conditional || this.staff.deleg.withdraw === 'commanders' || p.auth.withdraw === 'yes' || (ord.freedom !== 'strict' && o.autonomy >= 35);
+    if (p.auth.withdraw === 'no') free = false;
     if (free || o.arch === 'cautious' && op.pressure > 0.9) {
       sec.held = 'line2';
       op.pressure = 0.1;
@@ -308,6 +310,7 @@ export class Sim {
       text: `Капитан… ${o.name} убит. Командование взводом принял ${name}. Жду приказаний.`,
       options: [{ label: 'Принимайте взвод. Держитесь.', fn: () => ({ text: 'Есть.' }) }] });
     this.addLog(p.name, `${o.name} убит.`, 'death');
+    this.addLog('Кадры', `${p.name}: командование принял ${name}.`, 'staffchange');
   }
 
   loseSector(sec, op) {
@@ -538,11 +541,12 @@ export class Sim {
       if (sec.held !== 'lost') sec.fort = clamp(sec.fort + 0.004 * o.fortSelf, 0, 95);
     }
     // ночная инициатива — вылазки
-    if (o.raids > 0 && this.staff.deleg.initiative !== 'forbid' && this.night > 0.8 && p.where.type === 'sector' && !this.sectors[p.where.s].op && !p.raid && p.men > 15 && p.fatigue < 70) {
+    const initiative = p.auth.initiative !== 'inherit' ? p.auth.initiative : this.staff.deleg.initiative;
+    if (o.raids > 0 && initiative !== 'forbid' && this.night > 0.8 && p.where.type === 'sector' && !this.sectors[p.where.s].op && !p.raid && p.men > 15 && p.fatigue < 70) {
       const k = this.flags['raid_' + o.id] || 0;
       if (this.t > k && chance(0.004 * o.raids)) {
         this.flags['raid_' + o.id] = this.t + 600;
-        if ((o.autonomy > 70 && o.trust > 55) || this.staff.deleg.initiative === 'allow') this.startRaid(p, true);
+        if ((o.autonomy > 70 && o.trust > 55) || initiative === 'allow') this.startRaid(p, true);
         else this.send({ from: o, unit: p.id, kind: 'raidAsk', expire: 40, text: say(o, 'raidAsk', {}),
           options: [
             { label: 'Разрешаю. Осторожно.', fn: () => { this.startRaid(p, false); this.trust(o, 4, 'капитан доверил вылазку'); this.autonomy(o, 4); return { text: 'Есть!' }; } },
@@ -713,6 +717,37 @@ export class Sim {
     }
     this.send({ from: o, unit: p?.id, channel: 'visit', kind: 'visit_' + reason, text, options, expire: 60, delay: rnd(15, 30),
       onIgnore: () => { this.trust(o, -6, 'пришёл лично — капитан не принял'); }, onClose: () => { o.inHQ = false; } });
+  }
+
+  /** Кандидаты на должность командира взвода (сержанты из подразделений гарнизона). */
+  candidates() {
+    if (!this.cands || this.cands.length < 2) {
+      const pool = SERGEANT_NAMES.filter((n) => !Object.values(this.officers).some((x) => x.name === n) && !(this.cands || []).some((c) => c.name === n));
+      const arches = [['veteran', 'Воюет с первого дня. Спокоен, говорит мало, бережёт патроны.'], ['executor', 'Служака. Всё по уставу, без самодеятельности.'], ['timid', 'Молод, старательен, но под огнём теряется.'], ['initiator', 'Лихой, любит действовать сам.']];
+      this.cands = (this.cands || []).concat(pool.slice(0, 3 - (this.cands || []).length).map((name, i) => { const [arch, desc] = arches[(Math.random() * arches.length) | 0]; return { name, arch, desc }; }));
+    }
+    return this.cands;
+  }
+
+  /** Сменить командира взвода: снятого — в распоряжение штаба, назначенного — на взвод. */
+  appoint(p, cand) {
+    const old = this.officerOf(p);
+    if (old && old.alive) {
+      old.alive = false; old.removed = true;
+      p.morale = clamp(p.morale - (old.auth > 70 ? 10 : 4), 0, 100);
+      for (const x of Object.values(this.officers)) if (x.alive && x !== old) this.trust(x, old.incident && ['disobey', 'lost'].includes(old.incident.kind) ? 1 : -3, `капитан снял ${old.short}`);
+    }
+    const id = 'sgt' + MSG_ID++;
+    const A = ARCH[cand.arch];
+    this.officers[id] = { id, name: cand.name, short: cand.name.split(' ').pop(), arch: cand.arch, unit: p.id, ...A,
+      exp: cand.arch === 'veteran' ? 72 : cand.arch === 'timid' ? 35 : 50, disc: cand.arch === 'executor' ? 90 : 65, init: cand.arch === 'initiator' ? 80 : 30, caution: 55, aggr: cand.arch === 'initiator' ? 75 : 40,
+      auth: 50, resil: cand.arch === 'timid' ? 40 : 65, care: 60, trust: 55, autonomy: 30, stress: 15, memory: [], interference: 0, alive: true, lastOrderT: -999, lastAskT: {}, grudge: 0,
+      promise: null, incident: null, waitingAnswer: null, inHQ: false, praised: 0, reprimanded: 0,
+      look: { beard: Math.random() < 0.4, pale: Math.random() < 0.5, cap: true }, bio: `Назначен капитаном. ${cand.desc}`, replaced: old ? old.name : null };
+    p.officer = id;
+    this.cands = this.cands.filter((c) => c !== cand);
+    this.addLog('Кадры', `${p.name}: командир — ${cand.name}${old ? ` (вместо ${old.short})` : ''}.`, 'staffchange');
+    return this.officers[id];
   }
 
   replaceOfficer(o) {
@@ -924,6 +959,7 @@ export class Sim {
   observe(s) {
     const sec = this.sectors[s];
     if (!sec) return;
+    for (const p of this.inSector(s)) this.snapshot(p, 'лично');
     const op = sec.op && sec.op.phase === 'active' ? sec.op : null;
     this.knowledgePatch(s, { held: sec.held, our: sec.holder, combat: !!op, line: sec.line, enemy: op ? strengthWords(op.str) + ' (лично)' : sec.held === 'lost' ? 'противник в секторе' : 'тихо (лично)' });
   }
@@ -931,8 +967,15 @@ export class Sim {
   ringing() { return this.pending('phone').sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0))[0] || null; }
 
   /** Игрок принял сообщение: применяем разведданные и пишем в журнал. */
+  /** Что штаб знает о взводе (по последнему докладу или личному осмотру). */
+  snapshot(p, how = 'доклад') {
+    if (!p) return;
+    p.known = { t: this.t, how, men: p.men, ammo: p.ammo, fatigue: p.fatigue, morale: p.morale, wounded: p.wounded, killed: p.killed };
+  }
+
   receive(m) {
     m.done = true;
+    if (m.unit && this.P(m.unit)) this.snapshot(this.P(m.unit), m.channel === 'visit' ? 'лично' : 'доклад');
     if (m.unit && m.intel) {
       const p = this.P(m.unit);
       const s = p?.where.s || p?.sector || (m.intel.sector);

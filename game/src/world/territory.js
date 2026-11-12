@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { boxGeo, M } from '../engine/geo.js';
 import { mat } from '../engine/ps1.js';
 import { toTex } from '../engine/textures.js';
+import { decorate } from './props.js';
 import {
   TRENCHES, DUGOUTS, SPOTS, SIGNS, SECTOR_POS, GRID, GRID_N, HQ_RECT, FLAT_R, HQ_GROUND,
   heights, baseGround, carve, terrainAt, floorAt, inHole, polar,
@@ -100,7 +101,7 @@ export function buildTerritory(scene, tex, lights, W) {
           const sx = x + nx * 0.95 * side, sz = z + nz * 0.95 * side;
           if (nearOther(sx, sz, tr, 1.7)) continue;
           const top = baseGround(sx, sz);
-          const h = Math.max(0.3, top - fl + 0.1);
+          const h = Math.max(0.3, top - fl - 0.02);
           B.box('planksV', 0.06, h, len / n, sx, fl + h / 2, sz, ang, 1);
           if (k % 2 === 0) B.box('log', 0.1, h + 0.15, 0.1, sx + nx * side * 0.06, fl + (h + 0.15) / 2, sz + nz * side * 0.06, ang);
         }
@@ -110,8 +111,7 @@ export function buildTerritory(scene, tex, lights, W) {
           const px = x + nx * 1.95 * out, pz = z + nz * 1.95 * out;
           if (!nearOther(px, pz, tr, 1.9)) {
             const g = baseGround(px, pz);
-            B.box('bag', len / n, 0.32, 0.55, px, g + 0.16, pz, ang, 1);
-            if (k % 3 !== 1) B.box('bag', len / n * 0.9, 0.3, 0.5, px, g + 0.46, pz, ang + 0.03, 1);
+            if (k % 3 !== 1) B.box('bag', len / n, 0.3, 0.55, px, g + 0.15, pz, ang, 1); // в разрывах — бойницы
           }
         }
       }
@@ -284,6 +284,7 @@ export function buildTerritory(scene, tex, lights, W) {
   const sky = new THREE.Mesh(new THREE.SphereGeometry(160, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), mat({ map: tex.sky, outdoor: true, side: THREE.BackSide }));
   sky.position.y = -20; root.add(sky);
 
+  decorate(B, T, lights, tex, mats);
   B.flush(root, mats);
   return T;
 }

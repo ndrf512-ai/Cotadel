@@ -29,6 +29,103 @@ export class Audio {
     this.ambF = f;
   }
 
+  /** Фоновые слои: ветер снаружи, гул генератора, тон помещения. */
+  _loop(freq, type, q, gain) {
+    const c = this.ctx;
+    const n = c.createBufferSource(); n.buffer = this.noise; n.loop = true;
+    const f = c.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = c.createGain(); g.gain.value = 0;
+    n.connect(f); f.connect(g); g.connect(this.master); n.start();
+    return { g, f };
+  }
+
+  initLayers() {
+    if (!this.ctx || this.layers) return;
+    const c = this.ctx;
+    this.layers = { wind: this._loop(500, 'bandpass', 0.6, 0), room: this._loop(180, 'lowpass', 0.7, 0) };
+    // генератор: пульсирующий низкий гул
+    const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 48;
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 160;
+    const am = c.createGain(); am.gain.value = 0.5;
+    const lfo = c.createOscillator(); lfo.frequency.value = 7; const lg = c.createGain(); lg.gain.value = 0.25; lfo.connect(lg); lg.connect(am.gain);
+    const g = c.createGain(); g.gain.value = 0;
+    o.connect(f); f.connect(am); am.connect(g); g.connect(this.master); o.start(); lfo.start();
+    this.layers.gen = { g };
+  }
+
+  /** env: { inside, genDist, voices(0..1), night } */
+  ambience(dt, env) {
+    if (!this.ctx) return;
+    this.initLayers();
+    const L = this.layers, t = this.ctx.currentTime;
+    L.wind.g.gain.setTargetAtTime(env.inside ? 0.008 : 0.05 + env.night * 0.02, t, 0.5);
+    L.wind.f.frequency.setTargetAtTime(380 + Math.sin(t * 0.3) * 160, t, 1);
+    L.room.g.gain.setTargetAtTime(env.inside ? 0.04 : 0, t, 0.4);
+    L.gen.g.gain.setTargetAtTime(Math.max(0, 1 - env.genDist / 22) * 0.05, t, 0.3);
+    if (env.voices > 0 && Math.random() < dt * 1.2 * env.voices) this.murmur(env.voiceDist ?? 0.5);
+    if (env.typing && Math.random() < dt * 9) this.type();
+    if (env.morse && Math.random() < dt * 0.25) this.morse();
+  }
+
+  /** Неразборчивая речь: «гласные» через формантные фильтры. */
+  murmur(dist = 0.5) {
+    const c = this.ctx, t0 = c.currentTime;
+    const o = c.createOscillator(); o.type = 'sawtooth';
+    const base = 95 + Math.random() * 80;
+    const f1 = c.createBiquadFilter(); f1.type = 'bandpass'; f1.Q.value = 6;
+    const f2 = c.createBiquadFilter(); f2.type = 'bandpass'; f2.Q.value = 8;
+    const g = c.createGain(); g.gain.value = 0;
+    o.connect(f1); o.connect(f2); f1.connect(g); f2.connect(g); g.connect(this.master);
+    const n = 3 + (Math.random() * 6 | 0);
+    let t = t0;
+    const vol = 0.05 * (1 - dist);
+    for (let i = 0; i < n; i++) {
+      const d = 0.09 + Math.random() * 0.14;
+      const v = [[700, 1100], [400, 2000], [300, 900], [500, 1700], [650, 1000]][(Math.random() * 5) | 0];
+      o.frequency.setValueAtTime(base * (1 + (Math.random() - 0.5) * 0.15), t);
+      f1.frequency.setValueAtTime(v[0], t); f2.frequency.setValueAtTime(v[1], t);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.02); g.gain.linearRampToValueAtTime(vol * 0.3, t + d);
+      t += d + (Math.random() < 0.2 ? 0.12 : 0.02);
+    }
+    g.gain.linearRampToValueAtTime(0, t + 0.05);
+    o.start(t0); o.stop(t + 0.1);
+  }
+
+  morse() {
+    const c = this.ctx; let t = c.currentTime;
+    const o = c.createOscillator(); o.frequency.value = 820; const g = c.createGain(); g.gain.value = 0;
+    o.connect(g); g.connect(this.master);
+    for (let i = 0; i < 6 + (Math.random() * 6 | 0); i++) { const d = Math.random() < 0.5 ? 0.06 : 0.18; g.gain.setValueAtTime(0.02, t); g.gain.setValueAtTime(0, t + d); t += d + 0.06; }
+    o.start(); o.stop(t + 0.05);
+  }
+
+  /** Пулемётная очередь. */
+  mg(dist = 1) {
+    if (!this.ctx) return;
+    const n = 6 + (Math.random() * 8 | 0);
+    const t0 = this.ctx.currentTime, near = 1 - dist;
+    for (let i = 0; i < n; i++) this._noiseBurst(t0 + i * 0.075, 0.06 + dist * 0.15, 500 + near * 2200, 0.03 + near * 0.3, 'bandpass', 0.9);
+  }
+
+  /** Свист подлетающего снаряда. */
+  whistle(near = 0.5) {
+    if (!this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    const o = c.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(1500, t); o.frequency.exponentialRampToValueAtTime(380, t + 0.9);
+    const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.03 * (1.2 - near), t + 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.95);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 1);
+  }
+
+  /** Шаг по поверхности: wood | earth | mud. */
+  stepOn(surface = 'earth', run = false) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    if (surface === 'wood') { this._noiseBurst(t, 0.06, 900 + Math.random() * 300, 0.1, 'bandpass', 3); this._noiseBurst(t + 0.01, 0.12, 180, 0.12, 'lowpass'); }
+    else if (surface === 'mud') { this._noiseBurst(t, 0.18, 350 + Math.random() * 200, 0.1, 'bandpass', 4); this._noiseBurst(t + 0.08, 0.1, 1200, 0.03, 'highpass'); }
+    else this._noiseBurst(t, run ? 0.08 : 0.1, 240 + Math.random() * 140, run ? 0.14 : 0.1, 'lowpass');
+  }
+
   resume() { if (this.ctx && this.ctx.state !== 'running') this.ctx.resume(); }
   suspend() { if (this.ctx) this.ctx.suspend(); }
 

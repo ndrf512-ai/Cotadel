@@ -22,9 +22,9 @@ function radial(th, list) { return list.map(([r, d]) => [...polar(r, th), d]); }
 // ---------------- траншеи ----------------
 // kind: front — первая линия, second — вторая, comm — ход сообщения, stub — вход в блиндаж
 export const TRENCHES = [
-  { id: 'N1', kind: 'front', sector: 'N', pts: arc(58, -40, 40, 8, 1.5, 1.2) },
-  { id: 'E1', kind: 'front', sector: 'E', pts: arc(58, 50, 130, 8, 1.5, 1.2) },
-  { id: 'S1', kind: 'front', sector: 'S', pts: arc(58, 140, 220, 8, 1.5, 1.2) },
+  { id: 'N1', kind: 'front', sector: 'N', pts: arc(58, -40, 40, 8, 1.3, 1.2) },
+  { id: 'E1', kind: 'front', sector: 'E', pts: arc(58, 50, 130, 8, 1.3, 1.2) },
+  { id: 'S1', kind: 'front', sector: 'S', pts: arc(58, 140, 220, 8, 1.3, 1.2) },
   { id: 'W1', kind: 'front', sector: 'W', pts: arc(54, 252, 288, 9, 1.0, 0.8) },
   { id: 'R2', kind: 'second', sector: null, pts: arc(36, -70, 250, 10, 1.5) },
   { id: 'cN', kind: 'comm', sector: 'N', pts: radial(0, [[14, 0], [19, 1.5], [36, 1.5], [47, 1.5], [50, 1.5], [58, 1.5]]) },
@@ -49,8 +49,9 @@ export function baseGround(x, z) {
   const r = Math.hypot(x, z);
   let h = HQ_GROUND;
   if (r > FLAT_R) {
-    const d = r - FLAT_R;
+    const d = Math.min(r, 60) - FLAT_R;
     h -= d * d * 0.0011;
+    if (r > 60) h -= (r - 60) * 0.03; // за передним краем — пологий скат, поле видно из траншеи
     h += (Math.sin(x * 0.13) + Math.cos(z * 0.11)) * 0.25 * Math.min(1, d / 10);
   }
   if (x < -36) h -= 0.5 * Math.min(1, (-36 - x) / 8); // болото на западе

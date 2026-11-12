@@ -7,8 +7,9 @@ import { Input } from './engine/input.js';
 import { buildHQ } from './world/hq.js';
 import { buildTerritory } from './world/territory.js';
 import { Life } from './world/life.js';
+import { Battle } from './world/battle.js';
 import { drawMap, drawWallMap } from './world/mapdraw.js';
-import { floorAt, zoneAt, BOUND_R, baseGround as terrainTop } from './world/layout.js';
+import { floorAt, zoneAt, BOUND_R, baseGround as terrainTop, carve, SPOTS } from './world/layout.js';
 import { Sim } from './sim/sim.js';
 import { Director } from './sim/director.js';
 import { UI } from './ui/ui.js';
@@ -47,12 +48,13 @@ const ui = new UI(audio);
 const W = buildHQ(scene, tex, lights);
 const T = buildTerritory(scene, tex, lights, W);
 const life = new Life(scene, W, T, lights, audio);
+const battle = new Battle(scene, audio, life);
 drawWallMap(W.refs.wallMapC); W.refs.wallMapTex.needsUpdate = true;
 const solids = [...W.solids, ...T.solids];
 const interactables = [...W.interact, ...T.interact];
 
 const game = {
-  sim: null, director: null, ui, audio, world: { handset: () => {} },
+  sim: null, director: null, ui, audio, world: { handset: () => {}, officerPos: (id) => { const n = life.officerNpc[id]; return n && n.root.visible ? n.root.position : null; } },
   ff: null, paused: false, started: false,
   fastForward(min) { this.ff = { until: this.sim.t + min }; },
   sleep(h) { this.sim.sleep(h); },
@@ -118,6 +120,7 @@ function act(it) {
     case 'officer': page = menus.officerField(sim.officers[it.oid]); break;
     case 'soldier': page = menus.soldier(it); break;
     case 'fieldphone': page = menus.fieldPhone(); break;
+    case 'personnel': page = menus.personnel(); break;
     case 'depotStock': page = menus.depotStock(); break;
     case 'medcab': page = menus.medcab(); break;
     case 'binoculars': page = menus.binoculars(); break;
@@ -162,8 +165,9 @@ window.__appPause = () => { if (game.started && !game.paused && !game.sim?.over)
 window.__appResume = () => {};
 window.__appBack = () => { if (!game.started) return; if (ui.isOpen) ui.close(); else setPause(!game.paused); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) window.__appPause(); });
-let mapKey = false;
-addEventListener('keydown', (e) => { if (e.code === 'KeyM') mapKey = true; });
+let mapKey = false, staffKey = false;
+addEventListener('keydown', (e) => { if (e.code === 'KeyM') mapKey = true; if (e.code === 'KeyP') staffKey = true; });
+document.getElementById('staffbtn')?.addEventListener('touchstart', (e) => { staffKey = true; e.preventDefault(); e.stopPropagation(); });
 document.getElementById('mapbtn')?.addEventListener('touchstart', (e) => { mapKey = true; e.preventDefault(); e.stopPropagation(); });
 
 // ----- старт -----
@@ -201,6 +205,7 @@ function frame() {
   if (game.started && !game.paused && sim && !ended) {
     if (input.consumeMenu()) { if (ui.isOpen) ui.close(); else setPause(true); }
     if (mapKey) { mapKey = false; if (ui.isOpen && ui.page && ui.page.hdr && ui.page.hdr[0] === 'Планшет') ui.close(); else if (!ui.isOpen) openPage(menus.pocketMap(mapPlayer())); }
+    if (staffKey) { staffKey = false; if (!ui.isOpen) openPage(menus.personnel()); }
     // время
     let rate = BASE_RATE;
     if (ui.isOpen) rate = PAPER_RATE;
@@ -253,7 +258,7 @@ function frame() {
       if (mx && canStep(player.x, player.z, player.x + mx, player.z)) player.x += mx;
       if (mz && canStep(player.x, player.z, player.x, player.z + mz)) player.z += mz;
       const moving = Math.hypot(mx, mz) > 0.0005;
-      if (moving) { bob += dt * (run ? 13 : 9); stepAcc += Math.hypot(mx, mz); if (stepAcc > (run ? 1.0 : 0.7)) { stepAcc = 0; audio.step(); } }
+      if (moving) { bob += dt * (run ? 13 : 9); stepAcc += Math.hypot(mx, mz); if (stepAcc > (run ? 1.0 : 0.7)) { stepAcc = 0; audio.stepOn(surfaceAt(player.x, player.z), run); } }
       hover = pickInteract();
       let label = hover ? hover.label : '';
       if (hover && hover.id === 'phone' && ring) label += ' — звонит!';
@@ -269,6 +274,13 @@ function frame() {
     player.y = eyeY;
 
     life.update(dt, time, sim, player);
+    battle.update(dt, time, sim, player);
+    // звуковая обстановка по месту
+    const inside = zone === 'hq' || zone.startsWith('dug');
+    let nearPpl = 99;
+    for (const q of life.people) { if (!q.root.visible) continue; const d = Math.hypot(q.root.position.x - player.x, q.root.position.z - player.z); if (d < nearPpl) nearPpl = d; }
+    const gen = T.dynamic.generator;
+    audio.ambience(dt, { inside, night: sim.night, genDist: Math.hypot(gen.x - player.x, gen.z - player.z), voices: zone === 'hq' ? 0.7 : nearPpl < 7 ? 0.35 : 0, voiceDist: zone === 'hq' ? 0.4 : Math.min(0.9, nearPpl / 8), typing: zone === 'hq' && life.clerk.typing, morse: zone === 'hq' });
     ui.subs(sim.subtitle);
     G.uWarp.value = Math.max(0, (sim.captain.fatigue - 70) / 30);
     mapTimer -= dt;
@@ -291,8 +303,15 @@ function frame() {
   renderer.render(scene, camera);
 }
 
+function surfaceAt(x, z) {
+  if (zone === 'hq' || zone.startsWith('dug')) return 'wood';
+  if (carve(x, z) > 0.5) return 'wood';
+  if (x < -38) return 'mud';
+  return 'earth';
+}
+
 // Отладочный доступ (для автотестов)
-window.__dbg = { renderer, game, act, menus, openPage, player, life, setYaw: (y, p) => { yaw = y; pitch = p; } };
+window.__dbg = { battle, renderer, game, act, menus, openPage, player, life, setYaw: (y, p) => { yaw = y; pitch = p; } };
 
 camera.position.copy(player);
 frame();

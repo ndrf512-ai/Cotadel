@@ -18,24 +18,28 @@ export class Life {
     this.walkers = [];
     // --- штаб ---
     const S = W.refs.spots;
-    this.olya = this.spawn({ look: 'olya', head: 'hair', pale: true, pose: 'sit' }, S.olya.x, S.olya.z, Math.PI / 2, { id: 'staff', who: 'olya', label: 'Сержант Мирон — связь' }, 0);
-    this.orlov = this.spawn({ look: 'officer', head: 'cap' }, S.orlov.x, S.orlov.z, Math.PI / 2, { id: 'staff', who: 'orlov', label: 'Начальник штаба Орлов' }, 0);
-    this.gusev = this.spawn({ look: 'soldier', head: 'cap' }, S.gusev.x, S.gusev.z, -0.6, { id: 'staff', who: 'gusev', label: 'Ординарец Гусев' }, 0);
+    this.olya = this.spawn({ look: 'olya', head: 'hair', pale: true, face: 0, pose: 'sitdesk' }, S.olya.x, S.olya.z, Math.PI / 2, { id: 'staff', who: 'olya', label: 'Сержант Мирон — связь' }, 0);
+    this.orlov = this.spawn({ look: 'staff', head: 'cap', face: 1, pose: 'sitdesk' }, S.orlov.x, S.orlov.z, 0, { id: 'staff', who: 'orlov', label: 'Начальник штаба Орлов' }, 0);
+    this.gusev = this.spawn({ look: 'soldier', head: 'pilotka', face: 0 }, S.gusev.x, S.gusev.z, -0.6, { id: 'staff', who: 'gusev', label: 'Ординарец Гусев' }, 0);
+    this.radioOp = this.spawn({ look: 'signal', head: 'pilotka', pose: 'sitdesk' }, S.radioOp.x, S.radioOp.z, Math.PI / 2, { id: 'soldier', role: 'radio', label: 'Радист' }, 0);
+    this.clerk = this.spawn({ look: 'staff', head: 'pilotka', face: 2, pose: 'sitdesk' }, S.clerk.x, S.clerk.z, 0, { id: 'soldier', role: 'clerk', label: 'Писарь штаба' }, 0);
+    this.orlovW = new Walker(this.orlov, (x, z) => 0); this.orlovW.speed = 1.1;
+    this.orlovT = 40 + Math.random() * 40; this.orlovAt = 'desk';
     this.hqWounded = S.wounded.map(([x, z]) => { const p = this.spawn({ look: 'wounded', head: 'bare', pose: 'lie' }, x, z - 0.9, 0.2, { id: 'wounded', label: 'Раненый' }, 0); p.root.visible = false; return p; });
     this.guards = [[-2.2, 1.4], [-2.0, 2.4]].map(([x, z]) => { const p = this.spawn({ look: 'soldier', rifle: true, pose: 'crouch' }, x, z, -Math.PI / 2, null, 0); p.root.visible = false; return p; });
     // --- тыловые службы ---
     const [dx, dz] = SPOTS.depot;
-    this.dyakov = this.spawn({ look: 'officer', head: 'cap', beard: true }, dx + 1.5, dz + 0.4, -1.2, { id: 'staff', who: 'dyakov', label: 'Старшина Дьяков — склад' });
-    this.spawn({ look: 'soldier', head: 'bare', pose: 'carry' }, dx - 1, dz + 0.8, 2.6, { id: 'soldier', role: 'depot', label: 'Боец хозвзвода' });
+    this.dyakov = this.spawn({ look: 'supply', head: 'ushanka', beard: true, face: 3 }, dx + 1.5, dz + 0.4, -1.2, { id: 'staff', who: 'dyakov', label: 'Старшина Дьяков — склад' });
+    this.spawn({ look: 'supply', head: 'pilotka', pose: 'carry' }, dx - 1, dz + 0.8, 2.6, { id: 'soldier', role: 'depot', label: 'Боец хозвзвода' });
     const med = T.dugouts.med;
-    this.grin = this.spawn({ look: 'medic', head: 'bare', pale: true }, med.spots.officer[0], med.spots.officer[2], -Math.PI / 2, { id: 'staff', who: 'grin', label: 'Военврач Гриневич' });
-    this.spawn({ look: 'medic', head: 'helmet' }, med.spots.center[0] + 0.8, med.spots.center[2] - 1.2, 0.5, { id: 'soldier', role: 'medic', label: 'Санитар' });
+    this.grin = this.spawn({ look: 'medic', head: 'cap', pale: true, face: 1 }, med.spots.officer[0], med.spots.officer[2], -Math.PI / 2, { id: 'staff', who: 'grin', label: 'Военврач Гриневич' });
+    this.spawn({ look: 'medic', head: 'pilotka', pose: 'work' }, med.spots.center[0] + 0.8, med.spots.center[2] - 1.2, 0.5, { id: 'soldier', role: 'medic', label: 'Санитар' });
     this.medWounded = [];
     for (const b of med.bunks) { const p = this.spawn({ look: 'wounded', head: 'bare', pose: 'lie' }, b[0], b[2] - 0.6, 0, { id: 'wounded', label: 'Раненый' }); p.root.position.y = b[1] - 0.25; p.root.visible = false; p.bunk = b; this.medWounded.push(p); }
     for (let i = 0; i < 4; i++) { const c = med.spots.center; const p = this.spawn({ look: 'wounded', head: 'bare', pose: 'lie' }, c[0] - 1.6 + i * 0.95, c[2] - 1.0, 0, { id: 'wounded', label: 'Раненый' }); p.root.visible = false; this.medWounded.push(p); }
     const [ex, ez] = SPOTS.engYard;
-    this.luchko = this.spawn({ look: 'officer', head: 'hair', pale: true }, ex + 1.2, ez + 0.4, 0.8, { id: 'staff', who: 'luchko', label: 'Мл. лейтенант Лучко — инженеры' });
-    this.engineers = [0, 1, 2].map((i) => this.spawn({ look: 'soldier', head: 'bare', pose: 'work' }, ex + 1.5 + i * 0.6, ez + 1.6, 3.1, { id: 'soldier', role: 'eng', label: 'Сапёр' }));
+    this.luchko = this.spawn({ look: 'officer', head: 'hair', pale: true, face: 0 }, ex + 1.2, ez + 0.4, 0.8, { id: 'staff', who: 'luchko', label: 'Мл. лейтенант Лучко — инженеры' });
+    this.engineers = [0, 1, 2].map((i) => this.spawn({ look: 'eng', pose: 'work' }, ex + 1.5 + i * 0.6, ez + 1.6, 3.1, { id: 'soldier', role: 'eng', label: 'Сапёр' }));
     // --- взводы ---
     this.units = {};
     this.enemies = {};
@@ -55,7 +59,8 @@ export class Life {
     this.visitors = new Map(); this.runners = new Map();
     this.doorOpen = 0;
     this.arrivedRunner = null;
-    this.wanderers = [0, 1].map(() => { const p = this.spawn({ look: 'soldier', rifle: true }, 0, 10, 0, { id: 'soldier', role: 'walk', label: 'Боец' }); const w = new Walker(p, floorAt); this.walkers.push({ w, p, wander: true }); return p; });
+    const wl = [{ look: 'soldier', rifle: true }, { look: 'supply', head: 'pilotka', pose: 'carry' }, { look: 'signal' }, { look: 'soldier', head: 'pilotka', pose: 'papers' }];
+    this.wanderers = wl.map((o) => { const p = this.spawn(o, 0, 10, 0, { id: 'soldier', role: o.look === 'supply' ? 'carrier' : o.look === 'signal' ? 'signal' : 'walk', label: o.look === 'signal' ? 'Связист' : o.look === 'supply' ? 'Боец хозвзвода' : 'Боец' }); const w = new Walker(p, floorAt); this.walkers.push({ w, p, wander: true }); return p; });
   }
 
   // ---------- общие ----------
@@ -136,12 +141,14 @@ export class Life {
       if (u.state === key) { this.animUnit(sim, p, u, sp); continue; }
       u.state = key;
       u.men.forEach((m, i) => {
+        m.downT = 0;
+        m.sector = sp && !sp.res ? sp.s : null;
         if (!sp || i >= show) { m.root.visible = false; return; }
         m.root.visible = true;
         let x, z, ry = 0, pose = 'stand';
         if (sp.res) {
           const [a, b] = sp.line[i % sp.line.length]; x = a; z = b;
-          ry = Math.atan2(sp.center[0] - x, sp.center[1] - z); pose = sim.night > 0.5 || i % 3 ? 'sit' : 'stand';
+          ry = Math.atan2(sp.center[0] - x, sp.center[1] - z); pose = sim.night > 0.5 || i % 3 ? 'sit' : (i % 2 ? 'stand' : 'papers');
         } else if (i < show - 2 || show <= 2) {
           // на огневых позициях
           const spots = [...sp.mg, ...sp.line];
@@ -149,7 +156,7 @@ export class Life {
           x = a + (Math.random() - 0.5) * 0.5; z = b + (Math.random() - 0.5) * 0.5;
           ry = Math.atan2(sp.out[0] * 1 + (x / 60) * 0, sp.out[1]);
           ry = Math.atan2(x, z); // лицом наружу (от штаба)
-          pose = sp.combat ? (i % 2 ? 'aim' : 'crouch') : (i % 3 === 0 ? 'aim' : 'stand');
+          pose = sp.combat ? ['fire', 'aim', 'crouch'][i % 3] : ['aim', 'stand', 'stand', 'crouch'][i % 4];
         } else {
           // отдыхают в блиндаже
           const ref = this.T.dugouts[sp.dug.id];
@@ -220,7 +227,7 @@ export class Life {
       const len = this.path(from, to).reduce((a, b, i, arr) => a + (i ? dist2(arr[i - 1], b) : 0), 0);
       const speed = Math.max(0.9, len / Math.max(15, (d.eta - sim.t) / 0.5));
       for (let i = 0; i < 2; i++) {
-        const it = this.walk({ look: 'soldier', head: 'bare', pose: 'carry' }, V(from.x + i * 0.5, from.z), to, null, speed, { id: 'soldier', role: 'carrier', unit: p.id, label: 'Подносчик патронов' });
+        const it = this.walk({ look: 'supply', head: 'pilotka', pose: 'carry' }, V(from.x + i * 0.5, from.z), to, null, speed, { id: 'soldier', role: 'carrier', unit: p.id, label: 'Подносчик патронов' });
         setPose(it.p, 'carry'); it.delay = i * 1.2;
       }
     }
@@ -237,7 +244,7 @@ export class Life {
       const md = DUGOUTS.find((d) => d.id === 'med');
       const to = V(md.rect[0] - 1.2, (md.rect[2] + md.rect[3]) / 2);
       const speed = Math.max(0.7, this.path(from, to).reduce((a, b, i, arr) => a + (i ? dist2(arr[i - 1], b) : 0), 0) / Math.max(20, (w.t - sim.t) / 0.5));
-      const a = this.walk({ look: 'medic', head: 'helmet' }, from, to, null, speed, { id: 'soldier', role: 'medic', label: 'Санитар' }); a.medic = true;
+      const a = this.walk({ look: 'medic', head: 'pilotka' }, from, to, null, speed, { id: 'soldier', role: 'medic', label: 'Санитар' }); a.medic = true;
       const b = this.walk({ look: 'wounded', head: 'bare' }, V(from.x + 0.6, from.z), to, null, speed, { id: 'wounded', label: 'Раненый' }); b.medic = true; b.delay = 0.6;
       active++;
     }
@@ -248,7 +255,7 @@ export class Life {
       const need = sec.line === 'cut' && sec.held !== 'lost';
       if (need && !this[key]) {
         const [x, z] = polar(30, { N: 0, E: 90, S: 180, W: 270 }[s]);
-        this[key] = this.walk({ look: 'soldier', head: 'helmet' }, V(-9, 2), V(x, z), (it) => { setPose(it.p, 'work'); }, 1.6, { id: 'soldier', role: 'signal', label: 'Связист-линейщик' });
+        this[key] = this.walk({ look: 'signal' }, V(-9, 2), V(x, z), (it) => { setPose(it.p, 'work'); }, 1.6, { id: 'soldier', role: 'signal', label: 'Связист-линейщик' });
       } else if (!need && this[key]) { this.endWalk(this[key]); this[key] = null; }
     }
     // инженеры
@@ -305,7 +312,7 @@ export class Life {
     if (sim.player.zone !== 'hq') {
       for (const m of sim.inbox) {
         if (!m.runner || m.done || sim.t < m.arrive || this.runners.has(m.id)) continue;
-        const it = this.walk({ look: 'soldier', head: 'cap' }, V(-9.5, 1.8), V(cam.x, cam.z), null, 3.4, { id: 'runner', msg: m.id, label: 'Посыльный из штаба' });
+        const it = this.walk({ look: 'soldier', head: 'pilotka' }, V(-9.5, 1.8), V(cam.x, cam.z), null, 3.4, { id: 'runner', msg: m.id, label: 'Посыльный из штаба' });
         it.runner = m; it.retarget = 0;
         this.runners.set(m.id, it);
       }
@@ -325,6 +332,28 @@ export class Life {
     }
   }
 
+  /** Работа штаба: Орлов ходит к карте, связисты отвечают на вызовы, писарь печатает. */
+  hqLife(dt, sim) {
+    const S = this.W.refs.spots;
+    this.orlovW.update(dt);
+    this.orlovT -= dt;
+    if (this.orlovT <= 0 && !this.orlovW.path.length) {
+      if (this.orlovAt === 'desk') {
+        this.orlovAt = 'map'; setPose(this.orlov, 'stand');
+        this.orlovW.go([V(-0.4, 1.5), V(0, 0.3), V(-0.3, -0.7), V(-1.2, -1.3), V(S.orlovMap.x, S.orlovMap.z)], () => { setPose(this.orlov, 'papers'); this.orlov.root.rotation.y = Math.PI / 2; });
+        this.orlovT = 18 + Math.random() * 12;
+      } else {
+        this.orlovAt = 'desk'; setPose(this.orlov, 'stand');
+        this.orlovW.go([V(-1.2, -1.3), V(-0.3, -0.7), V(0, 0.3), V(-0.4, 1.5), V(S.orlov.x, S.orlov.z)], () => { setPose(this.orlov, 'sitdesk'); this.orlov.root.rotation.y = 0; });
+        this.orlovT = 50 + Math.random() * 60;
+      }
+    }
+    const phone = sim.ringing() || sim.pending('phone').length;
+    setPose(this.olya, phone ? 'phone' : 'sitdesk');
+    setPose(this.radioOp, sim.pending('radio').length || (sim.t % 40 < 8) ? 'phone' : 'sitdesk');
+    this.clerk.typing = sim.player.zone === 'hq' && Math.random() < dt * 0.6;
+  }
+
   // ---------- эффекты ----------
   muzzle(x, y, z) {
     const m = this.muzzles.find((q) => !q.visible) || this.muzzles[0];
@@ -334,7 +363,7 @@ export class Life {
   boom(at, near) {
     // at: точка разрыва {x,z} или null (далеко)
     const k = 1 - near;
-    this.audio.boom(near);
+    if (near < 0.4) { this.audio.whistle(near); setTimeout(() => this.audio.boom(near), 850); } else this.audio.boom(near);
     this.shake = Math.max(this.shake, k * 0.15);
     this.lampV += (Math.random() - 0.5) * k * 2.2;
     if (k > 0.35) this.dustBurst(k);
@@ -388,6 +417,10 @@ export class Life {
       p.body.visible = d < 62;
       if (!p.far && p.root.visible) animate(p, dt, t);
     }
+    this.hqLife(dt, sim);
+    for (const u of Object.values(this.units)) for (const m of u.men) if (m.downT > 0) { m.downT -= dt; if (m.downT <= 0) m.root.visible = false; }
+    const nightK = nightness(sim.t);
+    for (const l of this.T.dynamic.lanterns || []) l.intensity = 0.65 * Math.min(1, nightK * 1.5 + 0.1);
     // Гусев: доклад
     const adj = sim.pending('adj').length > 0;
     this.tag(this.gusev, { id: 'staff', who: 'gusev', label: adj ? 'Гусев — разрешите доложить' : 'Ординарец Гусев' });
@@ -437,7 +470,6 @@ export class Life {
       const d = Math.min(1, Math.hypot(x - cam.x, z - cam.z) / 110);
       k = Math.max(k, Math.min(1, op.str / 150));
       nearest = Math.min(nearest, d);
-      if (Math.random() < dt * 4) { const [ex, ez] = polar(72 + Math.random() * 20, { N: 0, E: 90, S: 180, W: 270 }[s] + (Math.random() - 0.5) * 60); this.muzzle(ex, baseGround(ex, ez) + 0.5, ez); }
     }
     const push = sim.hq.pushOp && sim.hq.pushOp.phase === 'active';
     const inside = sim.player.zone === 'hq' || sim.player.zone.startsWith('dug');
