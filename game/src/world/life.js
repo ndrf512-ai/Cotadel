@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { makePerson, animate, Walker, setPose } from './people.js';
 import { G, mat } from '../engine/ps1.js';
 import { nightness, RES_LOCS } from '../sim/data.js';
-import { SECTOR_POS, SPOTS, DUGOUTS, floorAt, buildNav, nearestNode, findPath, polar, baseGround, zoneAt } from './layout.js';
+import { SECTOR_POS, SPOTS, DUGOUTS, floorAt, buildNav, nearestNode, findPath, polar, baseGround, zoneAt, R_FRONT, R_SECOND, R_WIRE } from './layout.js';
 
 const tmp = new THREE.Vector3();
 const V = (x, z) => ({ x, z });
@@ -59,6 +59,27 @@ export class Life {
     this.visitors = new Map(); this.runners = new Map();
     this.doorOpen = 0;
     this.arrivedRunner = null;
+    // рабочие места: люди заняты делом рядом с предметами
+    const st = [
+      { o: { look: 'supply', head: 'pilotka', pose: 'work' }, at: [SPOTS.kitchen[0] - 0.9, SPOTS.kitchen[1] + 0.6], face: SPOTS.kitchen, label: 'Повар', role: 'cook' },
+      { o: { look: 'eng', head: 'pilotka', pose: 'work' }, at: [SPOTS.generator[0] + 0.3, SPOTS.generator[1] + 1.0], face: SPOTS.generator, label: 'Механик у генератора', role: 'mech' },
+      { o: { look: 'soldier', rifle: true, pose: 'aim' }, at: SPOTS.np, out: true, label: 'Наблюдатель НП', role: 'np' },
+      { o: { look: 'signal', pose: 'phone' }, at: [-11.2, 0.6], face: [-12, 0.6], label: 'Связист у линии', role: 'signal' },
+      { o: { look: 'supply', head: 'ushanka', pose: 'papers' }, at: [SPOTS.depot[0] - 3.4, SPOTS.depot[1] - 0.6], face: [SPOTS.depot[0] - 3.5, SPOTS.depot[1] - 1.6], label: 'Кладовщик', role: 'depot' },
+      { o: { look: 'soldier', head: 'pilotka', pose: 'work' }, at: [-2.4, 7.4], face: [-2.7, 6.7], label: 'Боец у бочек с водой', role: 'walk' },
+    ];
+    for (const s of st) {
+      const p = this.spawn(s.o, s.at[0], s.at[1], 0, { id: 'soldier', role: s.role, label: s.label });
+      p.root.rotation.y = s.out ? Math.atan2(s.at[0], s.at[1]) : Math.atan2(s.face[0] - s.at[0], s.face[1] - s.at[1]);
+    }
+    // собеседники: двое курят у склада, двое у кухни
+    this.chats = [];
+    for (const [ax, az, bx, bz] of [[SPOTS.depot[0] + 3.2, SPOTS.depot[1] + 3.2, SPOTS.depot[0] + 4.1, SPOTS.depot[1] + 3.5], [SPOTS.kitchen[0] + 1.8, SPOTS.kitchen[1] - 1.2, SPOTS.kitchen[0] + 2.6, SPOTS.kitchen[1] - 0.6]]) {
+      const a = this.spawn({ look: 'soldier', head: 'pilotka' }, ax, az, Math.atan2(bx - ax, bz - az), { id: 'soldier', role: 'walk', label: 'Боец' });
+      const b = this.spawn({ look: 'soldier', rifle: true }, bx, bz, Math.atan2(ax - bx, az - bz), { id: 'soldier', role: 'walk', label: 'Боец' });
+      this.chats.push({ a, b, t: 0, who: 0 });
+    }
+    this.stationSpots = st.map((s) => s.at).concat([SPOTS.campfire, SPOTS.res.hq, [-10.5, 1.8], [7.4, 6.5], [SPOTS.engYard[0] - 1, SPOTS.engYard[1] + 2]]);
     const wl = [{ look: 'soldier', rifle: true }, { look: 'supply', head: 'pilotka', pose: 'carry' }, { look: 'signal' }, { look: 'soldier', head: 'pilotka', pose: 'papers' }];
     this.wanderers = wl.map((o) => { const p = this.spawn(o, 0, 10, 0, { id: 'soldier', role: o.look === 'supply' ? 'carrier' : o.look === 'signal' ? 'signal' : 'walk', label: o.look === 'signal' ? 'Связист' : o.look === 'supply' ? 'Боец хозвзвода' : 'Боец' }); const w = new Walker(p, floorAt); this.walkers.push({ w, p, wander: true }); return p; });
   }
@@ -175,7 +196,7 @@ export class Life {
       const hide = !o.alive || o.inHQ || !p || p.men <= 0 || p.where.type === 'move';
       if (!n) {
         if (hide) continue;
-        n = this.officerNpc[o.id] = this.spawn({ look: 'officer', head: o.look?.cap === false ? 'bare' : 'cap', beard: o.look?.beard, pale: o.look?.pale }, 0, -200, 0, { id: 'officer', oid: o.id, label: o.name });
+        n = this.officerNpc[o.id] = this.spawn({ look: 'officer', head: o.look?.cap === false ? 'pilotka' : 'cap', beard: o.look?.beard, pale: o.look?.pale, face: o.look?.face }, 0, -200, 0, { id: 'officer', oid: o.id, label: o.name });
       }
       n.root.visible = !hide;
       if (hide) continue;
@@ -254,7 +275,7 @@ export class Life {
       const key = 'sig' + s;
       const need = sec.line === 'cut' && sec.held !== 'lost';
       if (need && !this[key]) {
-        const [x, z] = polar(30, { N: 0, E: 90, S: 180, W: 270 }[s]);
+        const [x, z] = polar(R_SECOND - 6, { N: 0, E: 90, S: 180, W: 270 }[s]);
         this[key] = this.walk({ look: 'signal' }, V(-9, 2), V(x, z), (it) => { setPose(it.p, 'work'); }, 1.6, { id: 'soldier', role: 'signal', label: 'Связист-линейщик' });
       } else if (!need && this[key]) { this.endWalk(this[key]); this[key] = null; }
     }
@@ -276,9 +297,15 @@ export class Life {
     // бродячие бойцы между тыловыми точками
     for (const it of this.walkers.filter((w) => w.wander)) {
       if (it.w.path.length) continue;
-      const spots = [SPOTS.depot, SPOTS.engYard, SPOTS.campfire, SPOTS.res.hq, [-9.5, 1.8], [8, 7.5]];
-      const t = spots[(Math.random() * spots.length) | 0];
-      it.w.go(this.path(V(it.p.root.position.x, it.p.root.position.z), V(t[0] + Math.random(), t[1] + Math.random())));
+      // дошёл — постоял, поработал, пошёл дальше
+      if (it.busy === undefined) it.busy = 0;
+      if (it.busy > 0) { it.busy -= 1 / 60; continue; }
+      if (!it.didWork && it.p.base) { it.didWork = true; it.busy = 5 + Math.random() * 10; setPose(it.p, ['work', 'papers', 'stand', 'crouch'][(Math.random() * 4) | 0]); continue; }
+      it.didWork = false;
+      if (it.p.base === undefined) it.p.base = it.p.pose;
+      setPose(it.p, it.p.base);
+      const t = this.stationSpots[(Math.random() * this.stationSpots.length) | 0];
+      it.w.go(this.path(V(it.p.root.position.x, it.p.root.position.z), V(t[0] + Math.random() * 1.5 - 0.75, t[1] + Math.random() * 1.5 - 0.75)));
     }
   }
 
@@ -340,11 +367,11 @@ export class Life {
     if (this.orlovT <= 0 && !this.orlovW.path.length) {
       if (this.orlovAt === 'desk') {
         this.orlovAt = 'map'; setPose(this.orlov, 'stand');
-        this.orlovW.go([V(-0.4, 1.5), V(0, 0.3), V(-0.3, -0.7), V(-1.2, -1.3), V(S.orlovMap.x, S.orlovMap.z)], () => { setPose(this.orlov, 'papers'); this.orlov.root.rotation.y = Math.PI / 2; });
+        this.orlovW.go([V(-0.8, 1.9), V(-0.5, 0.4), V(-0.6, -0.9), V(-1.6, -1.7), V(S.orlovMap.x, S.orlovMap.z)], () => { setPose(this.orlov, 'papers'); this.orlov.root.rotation.y = Math.PI / 2; });
         this.orlovT = 18 + Math.random() * 12;
       } else {
         this.orlovAt = 'desk'; setPose(this.orlov, 'stand');
-        this.orlovW.go([V(-1.2, -1.3), V(-0.3, -0.7), V(0, 0.3), V(-0.4, 1.5), V(S.orlov.x, S.orlov.z)], () => { setPose(this.orlov, 'sitdesk'); this.orlov.root.rotation.y = 0; });
+        this.orlovW.go([V(-1.6, -1.7), V(-0.6, -0.9), V(-0.5, 0.4), V(-0.8, 1.9), V(S.orlov.x, S.orlov.z)], () => { setPose(this.orlov, 'sitdesk'); this.orlov.root.rotation.y = 0; });
         this.orlovT = 50 + Math.random() * 60;
       }
     }
@@ -421,6 +448,18 @@ export class Life {
     for (const u of Object.values(this.units)) for (const m of u.men) if (m.downT > 0) { m.downT -= dt; if (m.downT <= 0) m.root.visible = false; }
     const nightK = nightness(sim.t);
     for (const l of this.T.dynamic.lanterns || []) l.intensity = 0.65 * Math.min(1, nightK * 1.5 + 0.1);
+    // разговоры по очереди
+    for (const c of this.chats) { c.t -= dt; if (c.t <= 0) { c.t = 1.5 + Math.random() * 2.5; c.who ^= 1; (c.who ? c.b : c.a).talk = c.t; } }
+    // люди рядом поворачивают голову к капитану
+    for (const p of this.people) {
+      if (!p.root.visible || p.walking || p.pose === 'lie' || p.pose === 'prone') { p.lookAt = undefined; continue; }
+      const dx = cam.x - p.root.position.x, dz = cam.z - p.root.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 3.5) { p.lookAt = undefined; continue; }
+      let a = Math.atan2(dx, dz) - p.root.rotation.y;
+      a = ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      p.lookAt = Math.abs(a) < 1.6 ? a : undefined;
+    }
     // Гусев: доклад
     const adj = sim.pending('adj').length > 0;
     this.tag(this.gusev, { id: 'staff', who: 'gusev', label: adj ? 'Гусев — разрешите доложить' : 'Ординарец Гусев' });
@@ -466,7 +505,7 @@ export class Life {
     for (const s of ['N', 'E', 'S', 'W']) {
       const op = sim.sectors[s].op;
       if (!op || op.phase !== 'active') continue;
-      const [x, z] = polar(60, { N: 0, E: 90, S: 180, W: 270 }[s]);
+      const [x, z] = polar(R_FRONT + 2, { N: 0, E: 90, S: 180, W: 270 }[s]);
       const d = Math.min(1, Math.hypot(x - cam.x, z - cam.z) / 110);
       k = Math.max(k, Math.min(1, op.str / 150));
       nearest = Math.min(nearest, d);
@@ -485,7 +524,7 @@ export class Life {
     this.nextFlare -= dt;
     if (night > 0.6 && this.nextFlare <= 0 && this.flareT <= 0) {
       this.flareT = 9; this.nextFlare = 8 + Math.random() * (k > 0 ? 6 : 25);
-      const [x, z] = polar(66 + Math.random() * 15, Math.random() * 270 - 50);
+      const [x, z] = polar(R_WIRE + 3 + Math.random() * 15, Math.random() * 270 - 50);
       this.flareMesh.position.set(x, baseGround(x, z) + 24, z); this.flareMesh.visible = true;
       this.audio.flare();
     }
@@ -500,7 +539,7 @@ export class Life {
     const L = this.W.refs;
     this.lampV += (-this.lampA * 9 - this.lampV * 1.2) * dt; this.lampA += this.lampV * dt;
     L.lampG.rotation.z = this.lampA * 0.35; L.lampG.rotation.x = this.lampA * 0.2;
-    L.lamp.pos.set(Math.sin(this.lampA * 0.35) * -0.55, 1.55, -2 + Math.sin(this.lampA * 0.2) * 0.55);
+    L.lamp.pos.set(L.lampBase.x + Math.sin(this.lampA * 0.35) * -0.55, 1.55, L.lampBase.z + Math.sin(this.lampA * 0.2) * 0.55);
     const d = L.dust;
     for (let i = 0; i < d.n; i++) { if (d.pos[i * 3 + 1] < -1) continue; d.pos[i * 3 + 1] -= d.vel[i] * dt; if (d.pos[i * 3 + 1] < 0) d.pos[i * 3 + 1] = -10; }
     d.pts.geometry.attributes.position.needsUpdate = true;
@@ -508,14 +547,14 @@ export class Life {
     if (this.doorOpen > 0) this.doorOpen -= dt;
 
     // день/ночь
-    const fog = new THREE.Color().setRGB(0.36, 0.38, 0.36).lerp(new THREE.Color(0.03, 0.035, 0.05), night);
+    const fog = new THREE.Color().setRGB(0.33, 0.37, 0.4).lerp(new THREE.Color(0.025, 0.03, 0.055), night);
     if (this.flare.intensity > 0.2) fog.lerp(new THREE.Color(0.2, 0.24, 0.2), 0.4 * this.flare.intensity);
     G.uFogColor.value.copy(fog);
     G.uFogNear.value = inside ? 8 : 12;
     G.uFogFar.value = 90 - night * 50;
-    G.uAmbientOut.value.setRGB(0.5, 0.5, 0.46).lerp(new THREE.Color(0.06, 0.065, 0.08), night);
-    G.uSunCol.value.setRGB(0.4, 0.38, 0.33).multiplyScalar(1 - night);
-    G.uAmbientIn.value.setRGB(0.07, 0.065, 0.055).add(new THREE.Color(0.06, 0.06, 0.055).multiplyScalar(1 - night));
+    G.uAmbientOut.value.setRGB(0.42, 0.46, 0.52).lerp(new THREE.Color(0.05, 0.06, 0.09), night);
+    G.uSunCol.value.setRGB(0.36, 0.37, 0.38).multiplyScalar(1 - night);
+    G.uAmbientIn.value.setRGB(0.085, 0.06, 0.042).add(new THREE.Color(0.05, 0.04, 0.03).multiplyScalar(1 - night));
     const m = sim.t % 1440;
     L.mHand.rotation.z = -(m % 60) / 60 * Math.PI * 2;
     L.hHand.rotation.z = -((m / 60) % 12) / 12 * Math.PI * 2;

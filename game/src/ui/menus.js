@@ -45,9 +45,7 @@ export class Menus {
   // ---------- телефон ----------
   phone() {
     const sim = this.sim;
-    const ring = sim.ringing();
-    if (ring) { this.g.world.handset(true); return this.msgPage(ring); }
-    return this.directory();
+    return this.commPanel();
   }
 
   directory() {
@@ -325,6 +323,7 @@ export class Menus {
       p.lastVisit = sim.t; sim.stats.visits++;
       p.morale = Math.min(100, p.morale + 6);
       sim.trust(o, 5, 'капитан сам пришёл к нам на позиции');
+      sim.rel(o, 'respect', 3);
     }
     const greet = (o.trust > 60 ? 'Рад вас видеть, капитан.' : o.trust > 35 ? 'Капитан.' : 'Пришли проверить?') + `\n\nКомандир: ${o.name}\nПодразделение: ${p.name}\nТекущая задача: ${this.unitTask(p)}\nСостояние: ${this.unitState(p)}`;
     const pend = sim.inbox.filter((m) => m.route === 'player' && !m.done && m.unit === p.id && sim.t >= m.arrive);
@@ -442,8 +441,8 @@ export class Menus {
 
   fieldPhone() {
     return { hdr: this.hdr('Полевой телефон'), who: 'Мирон (коммутатор)', text: '«Штаб слушает.»', options: [
+      { label: 'Пульт связи', fn: () => this.commPanel() },
       { label: 'Начальника штаба — доклад', fn: () => this.orlov() },
-      { label: 'Соединить с…', fn: () => this.directory() },
       hang,
     ], noType: true };
   }
@@ -541,7 +540,8 @@ export class Menus {
       const w = iss.reduce((a, b) => a + b.w, 0);
       return { p, o, iss, w };
     }).sort((a, b) => b.w - a.w);
-    const html = `<table><tr style="opacity:.7"><td>Взвод</td><td>Командир</td><td>Где</td><td>Состояние</td><td>Внимание</td></tr>${rows.map(({ p, o, iss, w }) => `<tr><td><b>${esc(p.name)}</b></td><td>${o ? esc(o.short) + `<br><span style="font-size:12px;opacity:.7">${this.archWord(o)}</span>` : '—'}</td><td style="font-size:13px">${esc(this.unitWhere(p))}</td><td style="font-size:13px">${esc(this.unitState(p))}</td><td style="font-size:13px;color:${w >= 3 ? '#8a2018' : '#5b5244'}">${esc(iss.map((x) => x.t).join(', ') || '—')}</td></tr>`).join('')}</table>`;
+    const fw = (f) => (f < 30 ? 'бодры' : f < 55 ? 'устали' : f < 75 ? 'вымотаны' : 'на пределе');
+    const html = `<table><tr style="opacity:.7;font-size:12px"><td>Взвод</td><td>Командир</td><td>Где · задача</td><td>Люди</td><td>Усталость</td><td>Состояние</td><td>Внимание</td></tr>${rows.map(({ p, o, iss, w }) => `<tr><td><b>${esc(p.name)}</b></td><td>${o ? esc(o.short) + `<br><span style="font-size:11px;opacity:.7">${this.archWord(o)}</span>` : '—'}</td><td style="font-size:12px">${esc(this.unitWhere(p).split(',')[0])}<br><span style="opacity:.7">${esc(this.unitTask(p))}</span></td><td>${p.known ? p.known.men : '?'}</td><td style="font-size:12px">${p.known ? fw(p.known.fatigue) : '?'}</td><td style="font-size:12px">${esc(this.unitState(p))}</td><td style="font-size:12px;color:${w >= 3 ? '#8a2018' : '#5b5244'}">${esc(iss.map((x) => x.t).join(', ') || '—')}</td></tr>`).join('')}</table>`;
     const opts = rows.map(({ p, o, w }) => ({ label: `${w >= 3 ? '⚑ ' : ''}${p.name} — ${o ? o.short : 'без командира'}`, fn: () => this.unitCard(p) }));
     opts.push({ label: 'Кадровые изменения', fn: () => { const l = sim.log.filter((x) => x.kind === 'staffchange' || x.kind === 'death').slice(-12).reverse(); return { text: l.map((x) => `${fmtTime(x.t).hm} — ${x.text}`).join('\n') || 'Изменений не было.', options: [back(() => this.personnel()), hang] }; } });
     opts.push({ label: 'Поручения штабу…', fn: () => this.delegPage() });
@@ -562,7 +562,8 @@ export class Menus {
       `Где: ${this.unitWhere(p)}`,
       `Состояние: ${this.unitState(p)}`,
       k ? `По докладу: в строю ${k.men}, ${ammoWords(k.ammo, 'x')}, ${fatigueWords(k.fatigue)}, ${moraleWords(k.morale)}.` : '',
-      o && o.alive ? `Отношение к вам: ${o.trust > 70 ? 'верит вам' : o.trust > 50 ? 'уважает' : o.trust > 30 ? 'насторожен' : 'не доверяет'}; ${o.autonomy > 65 ? 'действует сам' : o.autonomy > 35 ? 'действует по обстановке' : 'ждёт команды на всё'}.` : '',
+      o && o.alive ? `Отношение к вам: ${o.trust > 70 ? 'верит вам' : o.trust > 50 ? 'доверяет' : o.trust > 30 ? 'насторожен' : 'не доверяет'}; ${o.autonomy > 65 ? 'действует сам' : o.autonomy > 35 ? 'действует по обстановке' : 'ждёт команды на всё'}.` : '',
+      o && o.alive ? `Манера: ${this.manner(o)}.` : '',
       `Полномочия: отход — ${{ inherit: 'по общему порядку', yes: 'сам решает', no: 'только с разрешения' }[p.auth.withdraw]}; инициатива — ${{ inherit: 'по общему порядку', allow: 'разрешена', forbid: 'запрещена' }[p.auth.initiative]}.`,
       iss.length ? `Требует внимания: ${iss.map((x) => x.t).join(', ')}.` : 'Проблем не докладывали.',
       `Связь: ${via === 'person' ? 'командир рядом с вами' : via === 'courier' ? 'только связным' : 'телефон'}.`,
@@ -570,6 +571,13 @@ export class Menus {
     const req = sim.inbox.filter((m) => m.route === 'player' && !m.done && m.unit === p.id && sim.t >= m.arrive);
     const opts = req.map((m) => ({ label: `Запрос: ${shorten(m.text, 50)}`, fn: () => this.msgPage(m) }));
     if (o && o.alive && p.men > 0) {
+      const off = this.g.world.officerPos?.(o.id);
+      if (o.inHQ || near) opts.push({ label: 'Поговорить лично', fn: () => (o.inHQ ? (sim.inbox.find((m) => m.channel === 'visit' && m.from === o && !m.done) ? this.msgPage(sim.inbox.find((m) => m.channel === 'visit' && m.from === o && !m.done)) : this.officerField(o)) : this.officerField(o)) });
+      else opts.push({ label: 'Поговорить лично — вызвать в штаб', disabled: p.where.type === 'move', fn: () => { sim.issueOrder(p, { task: 'come' }, via); return { text: `${o.short} вызван в штаб. Как придёт — Гусев доложит.`, options: [back(() => this.unitCard(p)), hang] }; } });
+      if (p.where.type === 'sector') {
+        opts.push({ label: 'Держать', small: true, fn: () => { const r = via === 'courier' ? (sim.courierOrder(p, { task: 'hold' }), { text: 'Связной ушёл.' }) : sim.issueOrder(p, { task: 'hold' }, via); return { text: r.text, options: r.options ? this.wrap(r.options) : [back(() => this.unitCard(p)), hang] }; } });
+        opts.push({ label: 'Отойти на 2-ю линию', small: true, disabled: sim.sectors[p.where.s].held !== 'line1', fn: () => { const r = via === 'courier' ? (sim.courierOrder(p, { task: 'withdraw' }), { text: 'Связной ушёл.' }) : sim.issueOrder(p, { task: 'withdraw' }, via); return { text: r.text, options: r.options ? this.wrap(r.options) : [back(() => this.unitCard(p)), hang] }; } });
+      }
       opts.push({ label: `Изменить задачу${via === 'courier' ? ' (связным)' : via === 'person' ? ' (лично)' : ' (по телефону)'}…`, fn: () => ({ text: 'Новая задача:', options: [...this.orderList(p, via), back(() => this.unitCard(p))], noType: true }) });
       opts.push({ label: 'Оставить на усмотрение командира', fn: () => {
         p.order.freedom = 'free'; p.order.conditional = p.order.priority !== 'hold'; sim.autonomy(o, 4); sim.trust(o, 2, 'капитан положился на моё решение');
@@ -585,7 +593,7 @@ export class Menus {
     } });
     opts.push({ label: o && o.alive ? 'Сменить командира…' : 'Назначить командира…', fn: () => this.appointPage(p) });
     opts.push(back(() => this.personnel(), 'К списку взводов'));
-    return { hdr: ['Карточка взвода', sim.time.full], who: p.name, text: lines, options: opts, noType: true };
+    return { hdr: ['Карточка взвода', sim.time.full], who: p.name, text: lines, options: opts, noType: true, panel: true };
   }
 
   unitAuth(p) {
@@ -606,5 +614,81 @@ export class Menus {
       ...c.map((x) => ({ label: `Назначить: ${x.name}`, fn: () => { const n = sim.appoint(p, x); return { text: `${n.name} принял ${p.name.replace('взвод', 'взвод')}. «Есть, товарищ капитан. Не подведу.»`, options: [back(() => this.unitCard(p), 'К карточке'), hang] }; } })),
       back(() => this.unitCard(p)),
     ] };
+  }
+
+  // ---------- пульт связи: всё важное на одном экране ----------
+  commPanel(flash) {
+    const sim = this.sim;
+    // входящие доклады без вопросов — сразу в строку «последнее»
+    for (const m of sim.pending('phone')) if ((m.options || []).length <= 1) { sim.receive(m); m.options?.[0]?.fn(); sim.close(m); flash = flash || `${m.fromName}: ${shorten(m.text, 160)}`; }
+    const pend = sim.staff.pendingDecisions().filter((m) => m.channel !== 'visit').slice(0, 4);
+    const opts = [];
+    if (pend.length) opts.push({ header: `Ждут решения: ${sim.staff.pendingDecisions().length}` });
+    for (const m of pend) {
+      opts.push({ header: `${m.fromName}: ${shorten(m.text, 150)}`, hot: m.urgent });
+      for (const o of m.options || []) opts.push({ label: o.label, small: true, disabled: o.disabled, fn: () => {
+        sim.receive(m);
+        const r = o.fn();
+        sim.close(m);
+        if (r && r.options) return { text: r.text, options: [...this.wrap(r.options, { label: 'К пульту', fn: () => this.commPanel(), cls: 'back' }), { label: 'К пульту', fn: () => this.commPanel(), cls: 'back' }] };
+        return this.commPanel(`${m.fromName}: ${r && r.text ? r.text : 'Принято.'}`);
+      } });
+    }
+    opts.push({ header: 'Взводы — короткие приказы' });
+    for (const p of Object.values(sim.platoons)) {
+      if (p.men <= 0) continue;
+      const o = sim.officerOf(p);
+      if (!o) continue;
+      const via = sim.channelFor(p) === 'courier' && p.where.type !== 'res' ? 'courier' : 'phone';
+      const k = p.known;
+      opts.push({ header: `${p.call} — ${o.short} · ${this.unitWhere(p).split(',')[0]} · ${k ? k.men + ' чел.' : ''} · ${this.unitState(p).split(' (')[0]}${via === 'courier' ? ' · нет связи' : ''}` });
+      opts.push({ label: 'Доклад', small: true, disabled: via === 'courier', fn: () => this.quickReport(p) });
+      if (p.where.type === 'sector') {
+        opts.push({ label: 'Держать', small: true, fn: () => this.quickOrder(p, { task: 'hold', priority: null, freedom: null }, via) });
+        opts.push({ label: 'Сам решает', small: true, fn: () => this.quickOrder(p, { task: 'hold', priority: 'people', freedom: 'free' }, via) });
+      }
+      opts.push({ label: 'Ещё…', small: true, fn: () => via === 'courier' ? this.callPlatoon(p) : this.unitCard(p) });
+    }
+    opts.push({ header: 'Службы' });
+    opts.push({ label: 'Орлов — сводка', small: true, fn: () => this.orlov() });
+    opts.push({ label: 'Дьяков — склад', small: true, fn: () => this.withDeleg(this.depot(), ['ammo']) });
+    opts.push({ label: 'Гриневич', small: true, fn: () => this.withDeleg(this.medpoint(), ['med']) });
+    opts.push({ label: 'Лучко', small: true, fn: () => this.withDeleg(this.engineers(), ['engAuto']) });
+    opts.push({ label: 'Мирон — линии', small: true, fn: () => this.olya() });
+    opts.push(hang);
+    const recent = sim.staff.digest.slice(-4).reverse().map((d) => `${fmtTime(d.t).hm} ${d.from}: ${esc(shorten(d.text, 110))}`).join('<br>');
+    return { hdr: this.hdr('Пульт связи'), flash, noType: true, panel: true, text: pend.length ? '' : 'Срочных вопросов нет. Обычные доклады принимает Орлов.',
+      html: recent ? `<div style="font-size:12px;opacity:.75;margin-top:4px">${recent}</div>` : '', options: opts };
+  }
+
+  quickReport(p) {
+    const sim = this.sim, o = sim.officerOf(p);
+    sim.statusReport(o, p, true);
+    const m = [...sim.inbox].reverse().find((x) => x.unit === p.id && x.kind === 'status');
+    if (m) { m.arrive = sim.t; m.routed = true; m.route = 'player'; sim.receive(m); sim.close(m); }
+    return this.commPanel(m ? `${o.short}: ${m.text}` : `${o.short} не отвечает.`);
+  }
+
+  quickOrder(p, ord, via) {
+    const sim = this.sim, o = sim.officerOf(p);
+    if (via === 'courier') { const eta = sim.courierOrder(p, ord); return this.commPanel(`Связной к ${o.short} ушёл, будет около ${fmtTime(eta).hm}.`); }
+    const r = sim.issueOrder(p, ord, 'phone');
+    if (r.retry || r.options) return { text: r.text, options: [...(r.retry ? [{ label: 'Повторить приказ', fn: () => this.quickOrder(p, ord, via) }] : []), ...(r.options ? this.wrap(r.options, { label: 'К пульту', fn: () => this.commPanel(), cls: 'back' }) : []), { label: 'К пульту', fn: () => this.commPanel(), cls: 'back' }] };
+    sim.say(r.text, o.short, 4);
+    return this.commPanel(`${o.short}: ${r.text}`);
+  }
+
+  /** Как командир себя ведёт — словами, не цифрами. */
+  manner(o) {
+    const l = [];
+    l.push(o.style === 'all' ? 'докладывает обо всём' : 'сообщает только о серьёзном');
+    l.push(o.proposes ? 'предлагает свои решения' : o.resolve < 40 ? 'часто спрашивает, что делать' : 'ждёт приказа и выполняет');
+    if (o.confidence > 70) l.push('уверен в ваших решениях');
+    else if (o.confidence < 35) l.push('сомневается в ваших решениях');
+    if (o.respect > 70) l.push('уважает вас');
+    else if (o.respect < 30) l.push('держится холодно');
+    if (o.grudge > 0) l.push('затаил обиду');
+    if (o.shaky) l.push('издёрган, может ошибиться в докладе');
+    return l.join(', ');
   }
 }

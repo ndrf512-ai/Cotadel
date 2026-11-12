@@ -2,7 +2,7 @@
 // аффинное текстурирование, 15-битная палитра с упорядоченным дизерингом, туман.
 import * as THREE from 'three';
 
-export const MAX_LIGHTS = 6;
+export const MAX_LIGHTS = 8;
 
 // Общие uniform-объекты: один набор на все материалы.
 export const G = {

@@ -1,6 +1,6 @@
 // Наполнение территории: у каждой зоны свой характер. Всё сливается в общие меши (Batch).
 import * as THREE from 'three';
-import { TRENCHES, DUGOUTS, SPOTS, SECTOR_POS, baseGround, floorAt, carve, inHole, polar, HQ_GROUND } from './layout.js';
+import { TRENCHES, DUGOUTS, SPOTS, SECTOR_POS, baseGround, floorAt, carve, inHole, polar, HQ_GROUND, R_SECOND, R_FRONT } from './layout.js';
 import { M } from '../engine/geo.js';
 import { mat } from '../engine/ps1.js';
 
@@ -25,7 +25,7 @@ export function decorate(B, T, lights, tex, mats) {
 
   // ---------- штабной двор: генератор, полевая кухня, бочки ----------
   {
-    const [x, z] = [-8, -4];
+    const [x, z] = SPOTS.generator;
     B.box('iron', 1.3, 0.8, 0.8, x, G0 + 0.45, z);          // генератор
     B.box('iron', 0.4, 0.4, 0.5, x + 0.85, G0 + 0.3, z);
     B.add('iron', new THREE.CylinderGeometry(0.06, 0.06, 1.2, 5), x - 0.4, G0 + 1.25, z);
@@ -40,7 +40,7 @@ export function decorate(B, T, lights, tex, mats) {
   }
   {
     // полевая кухня у резерва
-    const [x, z] = [-4, 14];
+    const [x, z] = SPOTS.kitchen;
     B.add('iron', new THREE.CylinderGeometry(0.45, 0.45, 0.8, 8), x, G0 + 0.85, z, 0, 0, Math.PI / 2);
     B.add('iron', new THREE.CylinderGeometry(0.06, 0.06, 1.0, 5), x - 0.3, G0 + 1.55, z);
     for (const dx of [-0.8, 0.8]) B.add('log', new THREE.CylinderGeometry(0.3, 0.3, 0.08, 8), x + dx * 0.9, G0 + 0.3, z, 0, Math.PI / 2);
@@ -49,7 +49,7 @@ export function decorate(B, T, lights, tex, mats) {
     T.dynamic.kitchen = { x, z };
     const l = lights.add(new THREE.Vector3(x, G0 + 0.6, z + 0.5), 0xff7030, 3, 0.6); l.flicker = 0.3;
     // столы и скамьи
-    for (const dz of [3, 5]) {
+    for (const dz of [2.2, 3.9]) {
       B.box('planks', 2.4, 0.06, 0.7, x + 3.5, G0 + 0.75, z + dz);
       for (const dx of [-1.1, 1.1]) B.box('log', 0.08, 0.75, 0.6, x + 3.5 + dx, G0 + 0.37, z + dz);
       for (const s of [-0.6, 0.6]) B.box('planks', 2.2, 0.06, 0.3, x + 3.5, G0 + 0.45, z + dz + s);
@@ -144,7 +144,7 @@ export function decorate(B, T, lights, tex, mats) {
     });
     // воронки и обломки вдоль позиций
     for (let k = 0; k < 9; k++) {
-      const [x, z] = polar(rnd(44, 63), { N: 0, E: 90, S: 180, W: 270 }[s] + rnd(-40, 40));
+      const [x, z] = polar(rnd(R_SECOND + 5, R_FRONT + 4), { N: 0, E: 90, S: 180, W: 270 }[s] + rnd(-40, 40));
       if (carve(x, z) > 0.2 || inHole(x, z)) continue;
       const y = baseGround(x, z);
       B.add('earth', new THREE.CylinderGeometry(rnd(0.9, 1.6), rnd(1.4, 2.2), 0.3, 7), x, y - 0.08, z);
@@ -170,7 +170,7 @@ export function decorate(B, T, lights, tex, mats) {
   // ---------- тыл: бочки с водой, тележка, бельё ----------
   barrel(-3, 6.5); barrel(-2.4, 6.9, 'barrel'); solid(-2.7, 6.7, 0.75);
   {
-    const [x, z] = [6, -14];
+    const [x, z] = [4, -12.5];
     B.box('planks', 1.2, 0.08, 2.0, x, G0 + 0.55, z, 0.2);
     B.add('log', new THREE.CylinderGeometry(0.45, 0.45, 0.08, 8), x - 0.7, G0 + 0.45, z + 0.3, 0.2, 0, Math.PI / 2);
     B.add('log', new THREE.CylinderGeometry(0.45, 0.45, 0.08, 8), x + 0.6, G0 + 0.45, z + 0.55, 0.2, 0, Math.PI / 2);
@@ -183,7 +183,7 @@ export function decorate(B, T, lights, tex, mats) {
     T.solids.push([x - 1.6, x + 1.6, z - 1.6, z + 1.6].map((v, i) => i < 2 ? x + (i ? 1 : -1) * (Math.abs(Math.cos(ry)) * 1.5 + 0.3) : z + (i === 3 ? 1 : -1) * (Math.abs(Math.sin(ry)) * 1.5 + 0.3)));
   }
   // фонари на столбах вдоль тыловых троп
-  for (const [x, z] of [[-9.5, 4], [6, 4], [-11, -6], [4, -10], [-6, 11]]) {
+  for (const [x, z] of [[-9.5, 4], [7.5, 2], [-8.5, -9.5], [4, -10], [-2.5, 9]]) {
     B.box('post', 0.08, 2.2, 0.08, x, G0 + 1.1, z);
     B.box('iron', 0.18, 0.22, 0.18, x + 0.2, G0 + 2.0, z);
     const l = lights.add(new THREE.Vector3(x + 0.2, G0 + 1.9, z), 0xffb060, 5, 0.55); l.flicker = 0.12; l.night = true;

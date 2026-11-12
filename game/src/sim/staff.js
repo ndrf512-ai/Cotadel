@@ -11,7 +11,8 @@ export const DELEG_INFO = {
   reserve: { who: 'Орлов', title: 'Просьбы о резерве', opts: { me: 'Решаю сам', deputy: 'Решает начальник штаба по докладу' } },
   withdraw: { who: 'Орлов', title: 'Отход на вторую линию', opts: { me: 'Только с моего разрешения', commanders: 'Командиры решают сами' } },
   initiative: { who: 'Орлов', title: 'Вылазки и контратаки по инициативе', opts: { me: 'Только с моего разрешения', allow: 'Разрешены', forbid: 'Запрещены' } },
-  rotation: { who: 'Орлов', title: 'Смена взводов', opts: { off: 'Только по моему приказу', deputy: 'Начальник штаба организует сам' } },
+  rotation: { who: 'Орлов', title: 'Смена взводов', opts: { off: 'Только по моему приказу', propose: 'Орлов предлагает — я решаю', deputy: 'Начальник штаба организует сам' } },
+  med: { who: 'Гриневич', title: 'Порядок лечения', opts: { me: 'Как я скажу', auto: 'Врач решает по загрузке' } },
   ammo: { who: 'Дьяков', title: 'Патроны на позиции', opts: { off: 'Выдавать по моему приказу', report: 'Докладывать, если кончаются', auto: 'Подвозить самому ниже нормы' } },
   engAuto: { who: 'Лучко', title: 'Ремонт укреплений', opts: { off: 'По моим заданиям', on: 'Чинить самым разбитым участкам' } },
   lines: { who: 'Мирон', title: 'Ремонт связи', opts: { order: 'По порядку', combat: 'Сначала участки, где бой' } },
@@ -20,7 +21,8 @@ export const DELEG_INFO = {
 export class Staff {
   constructor(sim) {
     this.sim = sim;
-    this.deleg = { reports: 'deputy', reserve: 'me', withdraw: 'me', initiative: 'me', rotation: 'off', ammo: 'report', engAuto: 'off', lines: 'combat', watch: null };
+    this.deleg = { reports: 'deputy', reserve: 'me', withdraw: 'me', initiative: 'me', rotation: 'propose', ammo: 'auto', engAuto: 'on', lines: 'combat', med: 'auto', watch: null };
+    this.nextSummary = sim.t + 120;
     this.digest = [];
     this.lastBrief = sim.t;
     this.workload = 0;      // загруженность начальника штаба
@@ -49,7 +51,7 @@ export class Staff {
     const watched = D.watch && s === D.watch;
     // перегруженный штаб иногда упускает доклады
     this.workload += 1;
-    if (info && D.reports === 'deputy' && !(this.home && m.urgent)) {
+    if (info && D.reports === 'deputy' && !m.toPlayer && !(this.home && m.urgent)) {
       if (this.workload > 6 && !m.urgent && chance(0.15)) { m.route = 'lost'; m.done = true; sim.inbox = sim.inbox.filter((x) => x !== m); return; }
       sim.receive(m);
       opts[0]?.fn();
@@ -123,6 +125,31 @@ export class Staff {
     const sim = this.sim, D = this.deleg;
     this.workload = Math.max(0, this.workload - 0.08);
     if (sim.t % 30 !== 0) return;
+    // медпункт: врач сам выбирает, кого лечить первым
+    if (D.med === 'auto') {
+      const m = sim.med, want = m.severe > m.light * 0.6 || sim.hq.stage >= 2 ? 'severe' : 'return';
+      if (m.priority !== want) { m.priority = want; this.note('Гриневич', want === 'severe' ? 'Тяжёлых много — сначала спасаем жизни.' : 'Сначала возвращаю в строй лёгких.'); }
+    }
+    // сводка начальника штаба
+    if (sim.t >= this.nextSummary) {
+      this.nextSummary = sim.t + 120;
+      const lines = SECTOR_IDS.map((s) => { const k = sim.knowledge[s]; return `${SECTORS[s].name.slice(0, 3)}.: ${k.held === 'lost' ? 'потерян' : k.held === 'line2' ? 'вторая линия' : 'держит'}${k.combat ? ', бой' : ''}`; }).join('; ');
+      this.note('Орлов', `Сводка на ${fmtTime(sim.t).hm}. ${lines}. Склад: патронов ${sim.depot.ammo.toFixed(1)} бк. Раненых — ${sim.med.light + sim.med.severe}.`);
+    }
+    // ротация: предложение капитану
+    if (D.rotation === 'propose' && !SECTOR_IDS.some((s) => sim.sectors[s].op) && !sim.recentFlag('rotProp', 180)) {
+      const res = sim.reservePlatoons().filter((p) => p.men > 18 && p.fatigue < 40);
+      const tired = Object.values(sim.platoons).filter((p) => p.where.type === 'sector' && !p.small && p.fatigue > 62).sort((a, b) => b.fatigue - a.fatigue)[0];
+      if (res[0] && tired) {
+        const r = res[0], s0 = tired.where.s;
+        sim.send({ fromName: 'Орлов', from: { short: 'Орлов', name: 'Начальник штаба Орлов' }, channel: 'adj', kind: 'rotation', expire: 60,
+          text: `Капитан, ${tired.name} на ${SECTORS[s0].gen} участке вымотан. Предлагаю сменить его — ${r.name} свежий. Организовать?`,
+          options: [
+            { label: 'Да, организуйте смену.', fn: () => { if (r.where.type !== 'res' || tired.where.s !== s0) return { text: 'Обстановка изменилась, капитан. Отбой.' }; sim.orderMove(r, { task: 'relieve', sector: s0, backLoc: r.where.loc }); return { text: 'Есть. Через полчаса будут на месте.' }; } },
+            { label: 'Нет, рано.', fn: () => ({ text: 'Понял.' }) },
+          ] });
+      }
+    }
     // ротация
     if (D.rotation === 'deputy' && !SECTOR_IDS.some((s) => sim.sectors[s].op)) {
       const res = sim.reservePlatoons().filter((p) => p.men > 18 && p.fatigue < 40);

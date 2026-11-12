@@ -165,8 +165,9 @@ window.__appPause = () => { if (game.started && !game.paused && !game.sim?.over)
 window.__appResume = () => {};
 window.__appBack = () => { if (!game.started) return; if (ui.isOpen) ui.close(); else setPause(!game.paused); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) window.__appPause(); });
-let mapKey = false, staffKey = false;
-addEventListener('keydown', (e) => { if (e.code === 'KeyM') mapKey = true; if (e.code === 'KeyP') staffKey = true; });
+let mapKey = false, staffKey = false, replyKey = false;
+addEventListener('keydown', (e) => { if (e.code === 'KeyM') mapKey = true; if (e.code === 'KeyP') staffKey = true; if (e.code === 'KeyT') replyKey = true; });
+document.getElementById('replybtn')?.addEventListener('touchstart', (e) => { replyKey = true; e.preventDefault(); e.stopPropagation(); });
 document.getElementById('staffbtn')?.addEventListener('touchstart', (e) => { staffKey = true; e.preventDefault(); e.stopPropagation(); });
 document.getElementById('mapbtn')?.addEventListener('touchstart', (e) => { mapKey = true; e.preventDefault(); e.stopPropagation(); });
 
@@ -193,7 +194,8 @@ function showEnd() {
 
 // ----- цикл -----
 const clock = new THREE.Clock();
-let mapTimer = 0, ringing = false, radioTimer = 0, lastAdj = null, time = 0, wasAsleep = false;
+let mapTimer = 0, ringing = false, radioTimer = 0, lastAdj = null, time = 0, wasAsleep = false, lastPend = 0;
+const pendEl = document.getElementById('pend'), replyBtn = document.getElementById('replybtn');
 
 function frame() {
   requestAnimationFrame(frame);
@@ -206,6 +208,15 @@ function frame() {
     if (input.consumeMenu()) { if (ui.isOpen) ui.close(); else setPause(true); }
     if (mapKey) { mapKey = false; if (ui.isOpen && ui.page && ui.page.hdr && ui.page.hdr[0] === 'Планшет') ui.close(); else if (!ui.isOpen) openPage(menus.pocketMap(mapPlayer())); }
     if (staffKey) { staffKey = false; if (!ui.isOpen) openPage(menus.personnel()); }
+    // быстрый ответ: из штаба, блиндажа (полевой телефон) или рядом с командиром
+    const nPend = sim.staff.pendingDecisions().length;
+    const nearOff = Object.values(life.officerNpc).some((n) => n.root.visible && Math.hypot(n.root.position.x - player.x, n.root.position.z - player.z) < 4);
+    const canAnswer = zone === 'hq' || zone.startsWith('dug') || nearOff;
+    if (replyKey) { replyKey = false; if (!ui.isOpen) { if (canAnswer) openPage(menus.commPanel()); else sim.say('Ответить можно из штаба, из блиндажа по полевому телефону или лично командиру. Срочное принесёт посыльный.', null, 4); } }
+    pendEl.textContent = nPend ? `☎ ${nPend}${canAnswer ? ' — T' : ''}` : '';
+    replyBtn.style.display = nPend && canAnswer && input.touch ? 'block' : 'none';
+    if (nPend > lastPend && zone === 'hq') { const m = sim.staff.pendingDecisions().slice(-1)[0]; if (m) sim.say(`${m.fromName} — ждёт решения. Нажмите T, чтобы ответить.`, 'Мирон', 4); }
+    lastPend = nPend;
     // время
     let rate = BASE_RATE;
     if (ui.isOpen) rate = PAPER_RATE;
@@ -289,7 +300,7 @@ function frame() {
 
   // камера
   if (zoom) {
-    camera.position.lerp(new THREE.Vector3(1.1, 1.5, -3.75), Math.min(1, dt * 5));
+    camera.position.lerp(new THREE.Vector3(0.8, 1.5, -4.7), Math.min(1, dt * 5));
     camera.fov += (38 - camera.fov) * Math.min(1, dt * 5);
     camera.rotation.set(Math.max(-0.2, Math.min(0.15, pitch)), Math.max(-0.5, Math.min(0.5, yaw)), 0, 'YXZ');
   } else {

@@ -34,7 +34,8 @@ export class UI {
     const hdr = page.hdr ? `<div class="hdr"><span>${esc(page.hdr[0] || '')}</span><span>${esc(page.hdr[1] || '')}</span></div>` : '';
     const who = page.who ? `<div class="who">${esc(page.who)}</div>` : '';
     const stamp = page.stamp ? `<div class="stamp">${esc(page.stamp)}</div>` : '';
-    this.sheet.innerHTML = `${hdr}${stamp}${who}<div class="txt"></div>${page.html ? `<div class="extra">${page.html}</div>` : ''}<div class="opts${page.grid ? ' grid' : ''}"></div>`;
+    const flash = page.flash ? `<div class="flash">${esc(page.flash)}</div>` : '';
+    this.sheet.innerHTML = `${hdr}${stamp}${who}${flash}<div class="txt"></div>${page.html ? `<div class="extra">${page.html}</div>` : ''}<div class="opts${page.grid ? ' grid' : ''}${page.panel ? ' panel' : ''}"></div>`;
     const txt = this.sheet.querySelector('.txt');
     this.buildOptions(page);
     this.sheet.scrollTop = 0;
@@ -47,9 +48,13 @@ export class UI {
     const box = this.sheet.querySelector('.opts');
     box.innerHTML = '';
     const opts = page.options && page.options.length ? page.options : [{ label: 'Закрыть', fn: () => undefined, cls: 'back' }];
-    opts.forEach((o, i) => {
+    let n = 0;
+    opts.forEach((o) => {
+      if (o.header !== undefined) { const h = document.createElement('div'); h.className = 'label' + (o.hot ? ' hot' : ''); h.textContent = o.header; box.appendChild(h); return; }
+      const i = n++;
       const b = document.createElement('button');
-      b.innerHTML = `${opts.length > 1 ? `<span style="opacity:.5">${i + 1}.</span> ` : ''}${esc(o.label)}`;
+      b.innerHTML = `${opts.length > 1 && i < 9 && !o.small ? `<span style="opacity:.5">${i + 1}.</span> ` : ''}${esc(o.label)}`;
+      if (o.small) b.classList.add('small');
       if (o.cls) b.className = o.cls;
       const dis = typeof o.disabled === 'function' ? o.disabled() : o.disabled;
       if (dis) b.disabled = true;

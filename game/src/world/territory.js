@@ -7,7 +7,7 @@ import { toTex } from '../engine/textures.js';
 import { decorate } from './props.js';
 import {
   TRENCHES, DUGOUTS, SPOTS, SIGNS, SECTOR_POS, GRID, GRID_N, HQ_RECT, FLAT_R, HQ_GROUND,
-  heights, baseGround, carve, terrainAt, floorAt, inHole, polar,
+  heights, baseGround, carve, terrainAt, floorAt, inHole, polar, R_WIRE,
 } from './layout.js';
 
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -79,10 +79,16 @@ export function buildTerritory(scene, tex, lights, W) {
     }
     return !!inHole(x, z);
   };
+  let tseed = 777;
+  const trnd = () => ((tseed = (tseed * 16807) % 2147483647) / 2147483647);
+  const STYLES = ['planks', 'planks', 'wattle', 'bags', 'logs', 'bare'];
   for (const tr of TRENCHES) {
     const p = tr.pts;
     for (let i = 0; i < p.length - 1; i++) {
-      const [ax, az, ad] = p[i], [bx, bz, bd] = p[i + 1];
+      const [ax, az, ad, aw = 1] = p[i], [bx, bz, bd, bw = 1] = p[i + 1];
+      // каждый участок укрепляли по-своему и в разное время
+      const style = tr.kind === 'stub' ? 'planks' : STYLES[(trnd() * STYLES.length) | 0];
+      const damaged = trnd() < 0.22;
       const len = Math.hypot(bx - ax, bz - az);
       const ang = Math.atan2(bx - ax, bz - az);
       const nx = Math.cos(ang), nz = -Math.sin(ang); // нормаль к оси
@@ -91,24 +97,45 @@ export function buildTerritory(scene, tex, lights, W) {
         const t = (k + 0.5) / n;
         const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
         const depth = ad + (bd - ad) * t;
+        const wd = (aw + (bw - aw) * t) * 0.9;
         if (inHole(x, z)) continue;
         const fl = floorAt(x, z);
         // настил
-        if (depth > 0.3) B.box('planks', 0.7, 0.05, len / n * 0.92, x, fl + 0.03, z, ang, 1);
+        if (depth > 0.3 && !(damaged && k % 3 === 1)) B.box('planks', 0.55 + wd * 0.2, 0.05, len / n * 0.9, x, fl + 0.03, z, ang + (trnd() - 0.5) * 0.08, 1);
         if (depth < 0.6) continue;
         // обшивка стенок
         for (const side of [-1, 1]) {
-          const sx = x + nx * 0.95 * side, sz = z + nz * 0.95 * side;
+          const off = wd + 0.05;
+          const sx = x + nx * off * side, sz = z + nz * off * side;
           if (nearOther(sx, sz, tr, 1.7)) continue;
           const top = baseGround(sx, sz);
           const h = Math.max(0.3, top - fl - 0.02);
-          B.box('planksV', 0.06, h, len / n, sx, fl + h / 2, sz, ang, 1);
-          if (k % 2 === 0) B.box('log', 0.1, h + 0.15, 0.1, sx + nx * side * 0.06, fl + (h + 0.15) / 2, sz + nz * side * 0.06, ang);
+          const L = len / n;
+          if (damaged && k % 2 === 0) { // обвалившийся участок: доски лежат на дне
+            B.box('planksV', 0.06, h * 0.7, L * 0.8, sx - nx * side * 0.35, fl + 0.2, sz - nz * side * 0.35, ang + 0.2, 1, 0, side * 1.1);
+            continue;
+          }
+          if (style === 'planks') {
+            B.box('planksV', 0.06, h, L, sx, fl + h / 2, sz, ang, 1);
+            if (k % 2 === 0) B.box('log', 0.1, h + 0.15, 0.1, sx + nx * side * 0.06, fl + (h + 0.15) / 2, sz + nz * side * 0.06, ang);
+          } else if (style === 'wattle') { // плетень из прутьев
+            for (let q = 0; q < 4; q++) B.box('post', 0.04, h + 0.1, 0.04, sx + Math.sin(ang) * (q - 1.5) * L / 4, fl + h / 2, sz + Math.cos(ang) * (q - 1.5) * L / 4);
+            B.box('earth', 0.05, h * 0.9, L, sx + nx * side * 0.03, fl + h * 0.45, sz + nz * side * 0.03, ang, 1);
+            B.box('post', 0.03, 0.03, L, sx, fl + h * 0.35, sz, ang); B.box('post', 0.03, 0.03, L, sx, fl + h * 0.7, sz, ang);
+          } else if (style === 'bags') { // стенка из мешков
+            const rows = Math.max(1, Math.round(h / 0.3));
+            for (let q = 0; q < rows; q++) B.box('bag', L * 0.95, 0.28, 0.4, sx + nx * side * 0.12, fl + 0.14 + q * 0.29, sz + nz * side * 0.12, ang + (q % 2) * 0.04, 1);
+          } else if (style === 'logs') { // горизонтальные брёвна
+            const rows = Math.max(1, Math.round(h / 0.22));
+            for (let q = 0; q < rows; q++) B.add('log', new THREE.CylinderGeometry(0.1, 0.1, L, 5), sx + nx * side * 0.05, fl + 0.1 + q * 0.21, sz + nz * side * 0.05, ang, Math.PI / 2);
+          } else if (k % 2 === 0) { // голая земля, только колья
+            B.box('post', 0.08, h + 0.1, 0.08, sx, fl + h / 2, sz);
+          }
         }
         // бруствер из мешков на первой линии — на стороне противника
-        if (tr.kind === 'front') {
+        if (tr.kind === 'front' || tr.kind === 'sap') {
           const out = Math.hypot(x + nx, z + nz) > Math.hypot(x, z) ? 1 : -1;
-          const px = x + nx * 1.95 * out, pz = z + nz * 1.95 * out;
+          const px = x + nx * (wd + 1.0) * out, pz = z + nz * (wd + 1.0) * out;
           if (!nearOther(px, pz, tr, 1.9)) {
             const g = baseGround(px, pz);
             if (k % 3 !== 1) B.box('bag', len / n, 0.3, 0.55, px, g + 0.15, pz, ang, 1); // в разрывах — бойницы
@@ -203,10 +230,10 @@ export function buildTerritory(scene, tex, lights, W) {
   }
 
   // ---------- проволока, камыш, ничейная земля ----------
-  for (const [a0, a1] of [[-50, 50], [45, 135], [135, 225]]) {
+  for (const [a0, a1] of [[-52, 52], [45, 135], [135, 228]]) {
     for (let a = a0; a < a1; a += 3.5) {
-      const [x, z] = polar(65 + Math.sin(a) * 0.6, a);
-      const [x2, z2] = polar(65 + Math.sin(a + 3.5) * 0.6, a + 3.5);
+      const [x, z] = polar(R_WIRE + Math.sin(a) * 0.8, a);
+      const [x2, z2] = polar(R_WIRE + Math.sin(a + 3.5) * 0.8, a + 3.5);
       const g = baseGround(x, z);
       B.box('post', 0.08, 1.2, 0.08, x, g + 0.5, z, 0, 1, 0.1 * Math.sin(a), 0);
       const len = Math.hypot(x2 - x, z2 - z);
@@ -216,22 +243,22 @@ export function buildTerritory(scene, tex, lights, W) {
     }
   }
   for (let i = 0; i < 260; i++) {
-    const x = rnd(-72, -38), z = rnd(-40, 40);
+    const x = rnd(-58, -28), z = rnd(-30, 30);
     if (carve(x, z) > 0.2 || inHole(x, z)) continue;
     B.add('reed', new THREE.PlaneGeometry(0.6, rnd(1.2, 2)), x, baseGround(x, z) + 0.7, z, rnd(0, 3));
   }
   for (let i = 0; i < 14; i++) {
-    const x = rnd(-70, -44), z = rnd(-35, 35);
+    const x = rnd(-56, -34), z = rnd(-28, 28);
     if (carve(x, z) > 0.1 || inHole(x, z)) continue;
     B.add('water', new THREE.CircleGeometry(rnd(1.5, 3.5), 7).rotateX(-Math.PI / 2), x, baseGround(x, z) + 0.04, z);
   }
   for (let i = 0; i < 70; i++) {
-    const a = rnd(-60, 230), r = rnd(68, 110);
+    const a = rnd(-60, 230), r = rnd(R_WIRE + 3, 95);
     const [x, z] = polar(r, a);
     B.add('earth', new THREE.CylinderGeometry(rnd(1, 2.4), rnd(1.5, 3), 0.25, 7), x, baseGround(x, z) - 0.05, z);
   }
   for (let i = 0; i < 45; i++) {
-    const a = rnd(0, 360), r = rnd(70, 125);
+    const a = rnd(0, 360), r = rnd(54, 120);
     const [x, z] = polar(r, a);
     const burned = Math.random() < 0.55, h = burned ? rnd(1, 3.5) : rnd(5, 9);
     B.add(burned ? 'burnt' : 'birch', new THREE.CylinderGeometry(0.12, 0.2, h, 5), x, baseGround(x, z) + h / 2 - 0.2, z);
@@ -239,7 +266,7 @@ export function buildTerritory(scene, tex, lights, W) {
   }
   // березняк на высоте у северного сектора
   for (let i = 0; i < 12; i++) {
-    const [x, z] = polar(rnd(40, 52), rnd(-35, 35));
+    const [x, z] = polar(rnd(29, 38), rnd(-35, 35));
     if (carve(x, z) > 0.05 || inHole(x, z)) continue;
     const h = rnd(4, 7);
     B.add('birch', new THREE.CylinderGeometry(0.1, 0.16, h, 5), x, baseGround(x, z) + h / 2 - 0.2, z);
@@ -248,18 +275,18 @@ export function buildTerritory(scene, tex, lights, W) {
   }
   // окопы противника вдали (силуэты)
   for (let a = -60; a < 240; a += 6) {
-    const [x, z] = polar(118, a);
+    const [x, z] = polar(88, a);
     B.box('earth', 6, 0.8, 1.5, x, baseGround(x, z) + 0.2, z, a * Math.PI / 180 + Math.PI / 2, 2);
   }
   // кладбище на востоке (кресты)
   for (let i = 0; i < 14; i++) {
-    const [x, z] = polar(rnd(42, 52), rnd(70, 110));
+    const [x, z] = polar(rnd(29, 38), rnd(65, 115));
     if (carve(x, z) > 0.05 || inHole(x, z)) continue;
     const g = baseGround(x, z);
     B.box('post', 0.08, 0.9, 0.08, x, g + 0.45, z); B.box('post', 0.45, 0.07, 0.07, x, g + 0.7, z);
   }
   // дорога на юг: колеи
-  for (let r = 24; r < 120; r += 2) {
+  for (let r = 18; r < 120; r += 2) {
     const [x, z] = polar(r, 185);
     if (carve(x, z) > 0.1) continue;
     B.box('earth', 0.4, 0.05, 2, x - 0.8, baseGround(x, z) + 0.01, z); B.box('earth', 0.4, 0.05, 2, x + 0.8, baseGround(x, z) + 0.01, z);
@@ -308,7 +335,7 @@ function buildGround(root, tex) {
     const cv = baseGround(x, z) - h;
     const r = Math.hypot(x, z);
     c.copy(r < FLAT_R + 2 ? cm : cg);
-    if (x < -38) c.lerp(cs, Math.min(1, (-38 - x) / 6));
+    if (x < -27) c.lerp(cs, Math.min(1, (-27 - x) / 6));
     if (cv > 0.15) c.lerp(ce, Math.min(1, cv / 0.8));
     const n = 0.92 + ((x * 7 + z * 13) % 5) * 0.02;
     col.push(c.r * n, c.g * n, c.b * n);
@@ -335,7 +362,7 @@ function buildGround(root, tex) {
   for (let j = 0; j < n2; j++) for (let i = 0; i < n2; i++) {
     const x = R0 + i * S, z = R0 + j * S;
     p2.push(x, baseGround(x, z), z); u2.push(x / 3, z / 3);
-    const k = x < -38 ? 0.75 : 1; c2.push(0.9 * k, 0.95, 0.8 * k);
+    const k = x < -27 ? 0.75 : 1; c2.push(0.9 * k, 0.95, 0.8 * k);
   }
   for (let j = 0; j < n2 - 1; j++) for (let i = 0; i < n2 - 1; i++) {
     const x = R0 + i * S, z = R0 + j * S;
@@ -377,7 +404,7 @@ function buildDugout(root, B, mats, d, T, lights, tex) {
   const doorAxis = d.door === 'n' || d.door === 's' ? 'z' : 'x';
   const far = { n: [cx, z1 - 0.5], s: [cx, z0 + 0.5], w: [x1 - 0.5, cz], e: [x0 + 0.5, cz] }[d.door];
   const along = doorAxis === 'z' ? [1, 0] : [0, 1];
-  const nb = d.role === 'med' ? 4 : 3;
+  const nb = d.role === 'med' ? 5 : 4;
   for (let i = 0; i < nb; i++) {
     const t = (i - (nb - 1) / 2) * 1.0;
     const bx = far[0] + along[0] * t, bz = far[1] + along[1] * t;
@@ -412,7 +439,8 @@ function buildDugout(root, B, mats, d, T, lights, tex) {
     tag(cab, { id: 'medcab', label: 'Шкаф с медикаментами' }); T.interact.push(cab);
     T.solids.push([cr[0] - 0.4, cr[0] + 0.4, cr[1] - 0.3, cr[1] + 0.3]);
   }
-  const lamp = lights.add(new THREE.Vector3(cx, fl + 1.8, cz), 0xffa050, 5, 1.3); lamp.flicker = 0.12;
+  themeProps(root, B, d, fl, H, lights, tex, T, doorAxis);
+  const lamp = lights.add(new THREE.Vector3(cx, fl + 1.8, cz), 0xffa050, 5.5, 1.35); lamp.flicker = 0.12;
   ref.lamp = lamp;
   const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.12, 6), mat({ color: 0xffd080, emissive: 0xd09040 }));
   glass.position.set(cx, fl + 1.85, cz); root.add(glass);
@@ -421,4 +449,74 @@ function buildDugout(root, B, mats, d, T, lights, tex) {
   ref.spots.door = { w: [x0 - 0.9, cz], e: [x1 + 0.9, cz], n: [cx, z0 - 0.9], s: [cx, z1 + 0.9] }[d.door];
   // табличка у входа
   return ref;
+}
+
+/** Индивидуальное убранство блиндажа — по характеру хозяина и назначению. */
+function themeProps(root, B, d, fl, H, lights, tex, T, doorAxis) {
+  const [x0, x1, z0, z1] = d.rect;
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  // стена напротив стола
+  const opp = { n: [cx + 0.6, z1 - 0.5], s: [cx - 0.6, z0 + 0.5], w: [cx - 0.3, z1 - 0.45], e: [cx + 0.3, z0 + 0.45] }[d.door];
+  const wd = doorAxis === 'x' ? [1, 0] : [0, 1];
+  const ry = doorAxis === 'x' ? 0 : Math.PI / 2;
+  const at = (k) => [opp[0] + wd[0] * k, opp[1] + wd[1] * k];
+  const wallSide = { n: 1, s: -1, w: 1, e: -1 }[d.door];
+  const wallPos = doorAxis === 'x' ? [cx, (wallSide > 0 ? z1 : z0) - wallSide * 0.07] : [(wallSide > 0 ? x1 : x0) - wallSide * 0.07, cz];
+  const mk = (k, o) => M(k, o);
+  const paper = mk('t_paper', { map: tex.doc });
+  const shelf = (k, y) => { const [x, z] = at(k); B.box('iWood', doorAxis === 'x' ? 1.0 : 0.25, 0.04, doorAxis === 'x' ? 0.25 : 1.0, x, fl + y, z); };
+  const add = (geo, m, k, y, rot = 0) => { const [x, z] = at(k); const o = new THREE.Mesh(geo, m); o.position.set(x, fl + y, z); o.rotation.y = rot; root.add(o); return o; };
+  const solidAt = (k, r = 0.35) => { const [x, z] = at(k); T.solids.push([x - r, x + r, z - r, z + r]); };
+  switch (d.theme) {
+    case 'orderly': // Коваль: всё по линейке
+      for (let i = 0; i < 4; i++) add(new THREE.BoxGeometry(0.05, 1.15, 0.07), mk('t_rifle', { color: 0x4a3a2a }), -0.6 + i * 0.16, 0.6);
+      B.box('iWood', 0.8, 0.08, 0.2, at(-0.36)[0], fl + 0.95, at(-0.36)[1], ry);
+      shelf(0.8, 1.3); for (let i = 0; i < 4; i++) add(new THREE.BoxGeometry(0.16, 0.12, 0.2), mk('t_box', { color: 0x5a6040 }), 0.5 + i * 0.2, 1.38);
+      add(new THREE.PlaneGeometry(0.7, 0.5), paper, 0.1, 1.55, doorAxis === 'x' ? (wallSide > 0 ? Math.PI : 0) : (wallSide > 0 ? -Math.PI / 2 : Math.PI / 2));
+      solidAt(-0.36, 0.5);
+      break;
+    case 'trophy': // Ярцев: трофеи и беспорядок
+      for (let i = 0; i < 3; i++) add(new THREE.SphereGeometry(0.15, 7, 3, 0, Math.PI * 2, 0, Math.PI / 2), mk('t_ehelm', { color: 0x5a5c58 }), -0.6 + i * 0.35, 1.32);
+      shelf(-0.25, 1.25);
+      add(new THREE.BoxGeometry(0.6, 0.4, 0.4), mk('i_crate', { map: tex.crate }), 0.6, 0.2, 0.3);
+      add(new THREE.BoxGeometry(0.12, 0.14, 1.0), mk('t_mg', { color: 0x2a2c28 }), 0.6, 0.48, 0.3);
+      for (let i = 0; i < 3; i++) add(new THREE.CylinderGeometry(0.04, 0.05, 0.25, 6), mk('t_bottle', { color: 0x2a4a30 }), -0.2 + i * 0.12, 0.13, i);
+      solidAt(0.6, 0.45);
+      break;
+    case 'homely': { // Сомов: книги, чайник, письма, фотографии
+      shelf(-0.4, 1.2); shelf(-0.4, 1.55);
+      for (let i = 0; i < 9; i++) add(new THREE.BoxGeometry(0.06, 0.24, 0.18), mk('t_book' + (i % 3), { color: [0x6a3a28, 0x3a4a6a, 0x5a5a30][i % 3] }), -0.8 + i * 0.09, 1.34 + (i > 5 ? 0.35 : 0));
+      add(new THREE.CylinderGeometry(0.22, 0.24, 0.5, 7), mk('i_metal', { map: tex.metalDark }), 0.65, 0.25);
+      add(new THREE.CylinderGeometry(0.09, 0.11, 0.13, 7), mk('t_kettle', { color: 0x7a7458 }), 0.65, 0.57);
+      const [sx, sz] = at(0.65);
+      const l = lights.add(new THREE.Vector3(sx, fl + 0.4, sz), 0xff6020, 2.2, 0.55); l.flicker = 0.3;
+      for (let i = 0; i < 3; i++) add(new THREE.BoxGeometry(0.1, 0.13, 0.015), mk('t_photo', { color: 0xb0a890 }), -0.9 + i * 0.25, 1.8);
+      add(new THREE.BoxGeometry(0.2, 0.01, 0.14), paper, 0.1, 0.02, 0.4);
+      solidAt(0.65, 0.35);
+      break;
+    }
+    case 'scout': // Кравец: плащ-палатки, бинокль, карта
+      for (let i = 0; i < 2; i++) add(new THREE.BoxGeometry(0.08, 1.1, 0.5), mk('t_camo', { map: tex.tarp, color: 0x6a7a50 }), -0.5 + i * 0.6, 1.2);
+      add(new THREE.BoxGeometry(0.2, 0.08, 0.12), mk('t_bino', { color: 0x2a2c28 }), 0.6, 0.8);
+      B.box('iWood', 0.6, 0.05, 0.4, at(0.6)[0], fl + 0.74, at(0.6)[1], ry);
+      add(new THREE.BoxGeometry(0.4, 0.005, 0.3), paper, 0.6, 0.78, 0.2);
+      solidAt(0.6, 0.35);
+      break;
+    case 'barracks': { // резерв: печка, сушатся портянки, котелки
+      add(new THREE.CylinderGeometry(0.24, 0.24, 0.55, 7), mk('i_metal', { map: tex.metalDark }), 0, 0.28);
+      const [sx, sz] = at(0);
+      const l = lights.add(new THREE.Vector3(sx, fl + 0.45, sz), 0xff5020, 2.4, 0.6); l.flicker = 0.35;
+      for (let i = 0; i < 5; i++) add(new THREE.BoxGeometry(0.03, 0.3, 0.12), mk('t_cloth', { color: 0x9a9070 }), -0.8 + i * 0.4, 1.65);
+      for (let i = 0; i < 4; i++) add(new THREE.CylinderGeometry(0.07, 0.06, 0.1, 6), mk('t_tin', { color: 0x5a5c50 }), 0.5 + i * 0.13, 0.05);
+      solidAt(0, 0.35);
+      break;
+    }
+    case 'med': // медпункт: ширма, бутыли, вёдра
+      add(new THREE.BoxGeometry(doorAxis === 'x' ? 1.4 : 0.04, 1.6, doorAxis === 'x' ? 0.04 : 1.4), mk('i_white', { color: 0xb8b4a4 }), -0.4, 0.8);
+      shelf(0.8, 1.2);
+      for (let i = 0; i < 6; i++) add(new THREE.CylinderGeometry(0.04, 0.05, 0.18, 6), mk('t_vial', { color: i % 2 ? 0x6a5030 : 0x3a5a5a }), 0.5 + i * 0.12, 1.31);
+      for (let i = 0; i < 2; i++) add(new THREE.CylinderGeometry(0.14, 0.11, 0.28, 7), mk('i_metal', { map: tex.metalDark }), 0.6 + i * 0.35, 0.14);
+      solidAt(-0.4, 0.5);
+      break;
+  }
 }

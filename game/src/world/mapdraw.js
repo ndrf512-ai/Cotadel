@@ -1,9 +1,9 @@
 // Карта окопов: рисуется по реальной геометрии укрепрайона (layout.js).
 // Обстановка (противник, положение взводов) — только по докладам, с временем доклада.
 import { SECTORS, SECTOR_IDS, fmtTime } from '../sim/data.js';
-import { TRENCHES, DUGOUTS, SPOTS, SECTOR_POS, HQ_RECT, polar } from './layout.js';
+import { TRENCHES, DUGOUTS, SPOTS, SECTOR_POS, HQ_RECT, polar, R_WIRE } from './layout.js';
 
-const EXT = 82; // метров от центра до края карты
+const EXT = 60; // метров от центра до края карты
 
 let paperNoise = null;
 function noise(w, h) {
@@ -27,20 +27,20 @@ export function drawMap(canvas, sim, big = false, player = null) {
   x.drawImage(noise(w, h), 0, 0);
   // рельеф: горизонтали высоты
   x.strokeStyle = 'rgba(120,96,60,.35)'; x.lineWidth = lw;
-  for (const r of [22, 34, 46, 58, 70]) { x.beginPath(); const [cx, cy] = P(0, 0); x.arc(cx, cy, r * sc, 0, Math.PI * 2); x.stroke(); }
+  for (const r of [17, 26, 35, 44, 53]) { x.beginPath(); const [cx, cy] = P(0, 0); x.arc(cx, cy, r * sc, 0, Math.PI * 2); x.stroke(); }
   // болото
   x.fillStyle = 'rgba(70,96,86,.5)';
   for (let i = 0; i < 70; i++) { const [u, v] = P(-80 + (i * 37 % 44), -40 + (i * 53 % 80)); x.fillRect(u, v, big ? 7 : 3, 1); }
   // дорога на юг
   x.strokeStyle = 'rgba(100,80,56,.55)'; x.lineWidth = big ? 2 : 1;
-  { const [a, b] = P(...polar(24, 185)); const [c, d] = P(...polar(90, 185)); x.beginPath(); x.moveTo(a, b); x.lineTo(c, d); x.stroke(); }
+  { const [a, b] = P(...polar(18, 185)); const [c, d] = P(...polar(70, 185)); x.beginPath(); x.moveTo(a, b); x.lineTo(c, d); x.stroke(); }
   // кладбище
   x.fillStyle = 'rgba(60,50,40,.6)';
-  for (let i = 0; i < 8; i++) { const [u, v] = P(...polar(44 + (i % 3) * 3, 78 + i * 3)); x.fillRect(u, v - 2, 1, big ? 6 : 3); x.fillRect(u - 1, v - 1, big ? 3 : 2, 1); }
+  for (let i = 0; i < 8; i++) { const [u, v] = P(...polar(30 + (i % 3) * 3, 72 + i * 4)); x.fillRect(u, v - 2, 1, big ? 6 : 3); x.fillRect(u - 1, v - 1, big ? 3 : 2, 1); }
   // проволока
   x.strokeStyle = 'rgba(40,36,30,.6)'; x.lineWidth = lw;
   for (const [a0, a1] of [[-50, 50], [45, 135], [135, 225]]) {
-    for (let a = a0; a < a1; a += 4) { const [u, v] = P(...polar(65, a)); x.beginPath(); x.moveTo(u - 2, v - 2); x.lineTo(u + 2, v + 2); x.moveTo(u + 2, v - 2); x.lineTo(u - 2, v + 2); x.stroke(); }
+    for (let a = a0; a < a1; a += 4) { const [u, v] = P(...polar(R_WIRE, a)); x.beginPath(); x.moveTo(u - 2, v - 2); x.lineTo(u + 2, v + 2); x.moveTo(u + 2, v - 2); x.lineTo(u - 2, v + 2); x.stroke(); }
   }
   // траншеи — реальная геометрия
   for (const tr of TRENCHES) {
@@ -74,7 +74,7 @@ export function drawMap(canvas, sim, big = false, player = null) {
     const k = sim.knowledge[s];
     const sp = SECTOR_POS[s];
     const mid = sp.line1[Math.floor(sp.line1.length / 2)];
-    const [lx, ly] = P(...polar(s === 'E' || s === 'W' ? 70 : 76, { N: 0, E: 90, S: 180, W: 270 }[s]));
+    const [lx, ly] = P(...polar(s === 'E' || s === 'W' ? 52 : 55, { N: 0, E: 90, S: 180, W: 270 }[s]));
     x.fillStyle = '#2a2620'; x.font = `bold ${fs}px monospace`; x.textAlign = 'center';
     x.fillText(SECTORS[s].name.toUpperCase(), lx, ly - (big ? 6 : 2));
     x.font = `${big ? 10 : 5}px monospace`; x.fillStyle = '#5b5244';

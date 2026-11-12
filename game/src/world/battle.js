@@ -2,7 +2,7 @@
 // численность врага = op.str, продвижение = op.pressure, прорыв = sec.held, отход = конец операции.
 import * as THREE from 'three';
 import { makePerson, setPose, animate, resetPose } from './people.js';
-import { SECTOR_POS, baseGround, floorAt, polar } from './layout.js';
+import { SECTOR_POS, baseGround, floorAt, polar, R_FRONT, R_WIRE, R_SECOND } from './layout.js';
 import { mat } from '../engine/ps1.js';
 
 const ANG = { N: 0, E: 90, S: 180, W: 270 };
@@ -84,7 +84,7 @@ export class Battle {
     while (g.length > want) this.free(g.pop());
     while (g.length < want) {
       const p = this.take(); if (!p) break;
-      this.place(p, rnd(90, 100), ANG[s] + rnd(-35, 35));
+      this.place(p, rnd(R_FRONT + 26, R_FRONT + 34), ANG[s] + rnd(-35, 35));
       p.dir = Math.random() < 0.5 ? -1 : 1; p.walkT = rnd(2, 6);
       g.push(p);
     }
@@ -125,20 +125,20 @@ export class Battle {
     }
     while (alive.length < want && sq.spawned !== true) {
       const p = this.take(); if (!p) break;
-      this.place(p, rnd(84, 92), ANG[s] + rnd(-28, 28));
+      this.place(p, rnd(R_FRONT + 20, R_FRONT + 27), ANG[s] + rnd(-28, 28));
       p.sq = sq; sq.men.push(p); alive.push(p);
       p.state = 'down'; p.stateT = rnd(0, 2); setPose(p, 'crouch');
     }
     if (op.phase === 'active') sq.spawned = true;
     // рубеж, до которого противник дошёл
     const pressure = Math.min(1.2, op.pressure || 0);
-    let front = op.phase === 'arty' ? 86 : 82 - pressure * 20;
-    if (sec.held === 'line2') front = 60 - Math.min(1, pressure) * 14;
-    if (op.type === 'feint') front = Math.max(front, 76);
+    let front = op.phase === 'arty' ? R_FRONT + 22 : R_FRONT + 19 - pressure * 15;
+    if (sec.held === 'line2') front = R_FRONT + 1 - Math.min(1, pressure) * (R_FRONT - R_SECOND - 3);
+    if (op.type === 'feint') front = Math.max(front, R_FRONT + 15);
     const our = this.ourTargets(s);
     for (const p of alive) {
       p.stateT -= dt;
-      const goal = Math.max(front + rnd(-3, 3), sec.held === 'line2' ? 48 : 64);
+      const goal = Math.max(front + rnd(-3, 3), sec.held === 'line2' ? R_SECOND + 4 : R_WIRE + 1);
       if (p.state === 'run') {
         if (p.r > goal) {
           p.r -= dt * 3.2; const [x, z] = polar(p.r, p.a);
@@ -216,7 +216,7 @@ export class Battle {
         if (!p.used || p.state !== 'retreat') return;
         p.r += 0.12 * 3.5; const [x, z] = polar(p.r, p.a);
         p.root.position.set(x, baseGround(x, z), z); p.root.rotation.y = Math.atan2(x, z);
-        if (p.r > 108) { this.free(p); return; }
+        if (p.r > R_FRONT + 40) { this.free(p); return; }
         requestAnimationFrame(go);
       };
       requestAnimationFrame(go);
@@ -233,13 +233,13 @@ export class Battle {
       sq = this.pushSquad = { men: [] };
       for (let i = 0; i < Math.min(12, Math.ceil(op.str / 12)); i++) {
         const p = this.take(); if (!p) break;
-        this.place(p, rnd(42, 50), ANG[op.from] + rnd(-20, 20)); p.state = 'run'; p.sq = sq; sq.men.push(p);
+        this.place(p, rnd(R_FRONT - 4, R_FRONT + 2), ANG[op.from] + rnd(-20, 20)); p.state = 'run'; p.sq = sq; sq.men.push(p);
       }
     }
     const want = Math.ceil(op.str / 12);
     const alive = sq.men.filter((p) => !p.dead);
     while (alive.length > want) this.kill(alive.splice(0, 1)[0]);
-    const goal = 42 - (sim.hq.threat / 100) * 32;
+    const goal = R_FRONT - 6 - (sim.hq.threat / 100) * (R_FRONT - 14);
     const targets = [{ x: -9, y: 1.2, z: 1.8 }, { x: 0, y: 1.2, z: -6 }];
     for (const p of alive) {
       p.stateT -= dt;

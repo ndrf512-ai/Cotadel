@@ -54,6 +54,7 @@ function lookMat(look, variant, face) {
   if (f === 2) { x.fillStyle = 'rgba(40,30,20,.35)'; x.fillRect(fx + 1, fy + 5, 6, 3); }        // щетина
   if (f === 3) { x.fillStyle = '#4a3a2c'; x.fillRect(fx + 1, fy + 5, 6, 3); x.fillStyle = '#7a5040'; x.fillRect(fx + 3, fy + 6, 2, 1); } // борода
   if (f === 4) { x.fillStyle = 'rgba(160,40,30,.5)'; x.fillRect(fx + 6, fy + 1, 1, 3); }        // шрам
+  if (f === 5) { x.fillStyle = '#2a2420'; x.fillRect(fx + 1, fy + 3, 3, 1); x.fillRect(fx + 4, fy + 3, 3, 1); x.fillRect(fx + 1, fy + 2, 1, 2); x.fillRect(fx + 6, fy + 2, 1, 2); x.fillStyle = 'rgba(200,220,220,.5)'; x.fillRect(fx + 2, fy + 3, 1, 1); x.fillRect(fx + 5, fy + 3, 1, 1); } // очки
   for (let i = 0; i < 60; i++) { const px = Math.random() * 32 | 0, py = Math.random() * 32 | 0; if (Math.floor(px / 8) + Math.floor(py / 8) * 4 === R.face) continue; x.fillStyle = `rgba(0,0,0,${Math.random() * 0.14})`; x.fillRect(px, py, 1, 1); }
   const m = mat({ map: toTex(c, false), outdoor: true });
   atlas.set(key, m);
@@ -180,6 +181,7 @@ export function makePerson(o = {}) {
   const L = LOOKS[look] || LOOKS.soldier;
   const variant = o.variant ?? (Math.random() * 3 | 0);
   const face = o.face ?? (o.beard ? 3 : o.pale ? 0 : (Math.random() * 5 | 0));
+  const gait = { speed: 0.85 + Math.random() * 0.3, swing: 0.8 + Math.random() * 0.45, lean: -0.04 + Math.random() * 0.1, tempo: 0.8 + Math.random() * 0.5 };
   const m = lookMat(look, variant, face);
   let head = o.head || ROLE_DEFAULTS[look]?.head || 'helmet';
   if (head === 'bare' && look !== 'wounded') head = 'pilotka';
@@ -196,7 +198,7 @@ export function makePerson(o = {}) {
   const leg = (x) => { const g = new THREE.Group(); g.position.set(x, 0, 0); g.add(new THREE.Mesh(legGeo(officer), m)); hips.add(g); return g; };
   const legL = leg(-0.1), legR = leg(0.1);
   const p = { root, body, hips, torso, head: headG, armL, armR, legL, legR, phase: Math.random() * 6, pose: 'stand', walking: false, running: false,
-    talk: 0, idle: { t: 1 + Math.random() * 5, act: null, d: 0 }, cur: null, role: look, fire: 0 };
+    talk: 0, idle: { t: 1 + Math.random() * 5, act: null, d: 0 }, cur: null, role: look, fire: 0, gait };
   if (o.rifle) {
     rifleMat = rifleMat || mat({ color: 0x5a4a3a, outdoor: true });
     const r = new THREE.Mesh(rifleGeo, rifleMat); r.position.set(0.02, -0.5, 0.15); r.rotation.x = 1.45; armR.add(r); p.rifle = r;
@@ -260,18 +262,19 @@ const IDLE = {
 export function animate(p, dt, t) {
   const T = poseTarget(p, t);
   const walk = p.walking && (p.pose === 'stand' || p.pose === 'carry');
-  p.phase += dt * (walk ? (p.running ? 11 : 7) : 1.4);
+  const g = p.gait || { speed: 1, swing: 1, lean: 0, tempo: 1 };
+  p.phase += dt * (walk ? (p.running ? 11 : 7) * g.speed : 1.4 * g.tempo);
   const s = Math.sin(p.phase);
   if (walk) {
-    const a = p.running ? 0.9 : 0.55;
+    const a = (p.running ? 0.9 : 0.55) * g.swing;
     T.lLX = s * a; T.lRX = -s * a;
     if (p.pose === 'stand') { T.aLX = -s * a * 0.8 - (p.running ? 0.5 : 0); T.aRX = s * a * 0.8 - (p.running ? 0.5 : 0); }
     T.hipsY = 0.92 + Math.abs(Math.cos(p.phase)) * (p.running ? 0.05 : 0.025);
-    T.torsoX = p.running ? 0.25 : 0.04;
+    T.torsoX = (p.running ? 0.25 : 0.04) + g.lean;
     T.torsoY = s * 0.06;
   } else {
-    // дыхание
-    T.torsoX += Math.sin(p.phase * 0.9) * 0.012;
+    // дыхание и осанка
+    T.torsoX += Math.sin(p.phase * 0.9) * 0.012 + (p.pose === 'stand' ? g.lean * 0.6 : 0);
     // случайные мелкие действия
     const id = p.idle;
     id.t -= dt;

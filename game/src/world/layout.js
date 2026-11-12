@@ -1,47 +1,75 @@
 // Единый план укрепрайона. Из него строится 3D-мир, карта окопов и маршруты людей.
 // Координаты в метрах: штаб в начале координат, север = -z, восток = +x.
 
-export const FLAT_R = 22;       // ровная площадка вокруг штаба (тыл)
+export const FLAT_R = 17;       // ровная площадка вокруг штаба (тыл)
 export const HQ_GROUND = 1.2;   // уровень земли у штаба (пол штаба — 0)
-export const BOUND_R = 68;      // дальше — проволока и ничейная земля
+export const R_SECOND = 26;     // вторая линия
+export const R_DUG = 33;        // взводные блиндажи
+export const R_FRONT = 42;      // первая линия
+export const R_WIRE = 47;       // проволока
+export const BOUND_R = 50;      // дальше — ничейная земля
+export const R_EDGE = 44;       // перегиб ската
 const DEG = Math.PI / 180;
 
 export const polar = (r, th) => [r * Math.sin(th * DEG), -r * Math.cos(th * DEG)];
 
-function arc(r, a0, a1, step, depth, zig = 0) {
+// детерминированный «случай»: траншеи всегда одинаковые, карта совпадает с местностью
+let SEED = 20240611;
+const srnd = () => ((SEED = (SEED * 16807) % 2147483647) / 2147483647);
+const sr = (a, b) => a + (b - a) * srnd();
+
+/** Неровная линия траншеи: изломы, ширина и глубина меняются; иногда — расширение-ниша. */
+function arc(r, a0, a1, step, depth, rough = 1) {
   const pts = [];
-  let i = 0;
-  for (let a = a0; a <= a1 + 0.001; a += step, i++) {
-    const [x, z] = polar(r + (zig ? (i % 2 ? zig : -zig) : 0), a);
-    pts.push([x, z, depth]);
+  for (let a = a0; a <= a1 + 0.001; a += step) {
+    const aa = a + (a > a0 && a < a1 ? sr(-1.5, 1.5) * rough : 0);
+    const [x, z] = polar(r + sr(-1.3, 1.3) * rough, aa);
+    const wide = srnd() < 0.18;
+    pts.push([x, z, depth + sr(-0.12, 0.1), wide ? sr(1.35, 1.6) : sr(0.8, 1.1)]);
   }
   return pts;
 }
-function radial(th, list) { return list.map(([r, d]) => [...polar(r, th), d]); }
+function radial(th, list) {
+  return list.map(([r, d, exact], i) => {
+    const off = exact || i === 0 || i === list.length - 1 ? 0 : sr(-1.1, 1.1);
+    const [x, z] = polar(r, th + (r > 0 ? off / r * 57.3 : 0));
+    return [x, z, d, i === 0 ? 1 : sr(0.8, 1.05)];
+  });
+}
+/** Тупиковая «сапа» от первой линии вперёд — пулемётный окоп или пост. */
+function sap(r, a, len, depth) {
+  const [x0, z0] = polar(r, a), [x1, z1] = polar(r + len * 0.55, a + sr(-4, 4)), [x2, z2] = polar(r + len, a + sr(-6, 6));
+  return [[x0, z0, depth, 0.9], [x1, z1, depth, 0.8], [x2, z2, depth - 0.15, 1.3]];
+}
 
 // ---------------- траншеи ----------------
-// kind: front — первая линия, second — вторая, comm — ход сообщения, stub — вход в блиндаж
+// kind: front — первая линия, second — вторая, comm — ход сообщения, sap — тупик вперёд, stub — вход в блиндаж
+const F = R_FRONT, S2 = R_SECOND, D = R_DUG;
 export const TRENCHES = [
-  { id: 'N1', kind: 'front', sector: 'N', pts: arc(58, -40, 40, 8, 1.3, 1.2) },
-  { id: 'E1', kind: 'front', sector: 'E', pts: arc(58, 50, 130, 8, 1.3, 1.2) },
-  { id: 'S1', kind: 'front', sector: 'S', pts: arc(58, 140, 220, 8, 1.3, 1.2) },
-  { id: 'W1', kind: 'front', sector: 'W', pts: arc(54, 252, 288, 9, 1.0, 0.8) },
-  { id: 'R2', kind: 'second', sector: null, pts: arc(36, -70, 250, 10, 1.5) },
-  { id: 'cN', kind: 'comm', sector: 'N', pts: radial(0, [[14, 0], [19, 1.5], [36, 1.5], [47, 1.5], [50, 1.5], [58, 1.5]]) },
-  { id: 'cE', kind: 'comm', sector: 'E', pts: radial(90, [[14, 0], [19, 1.5], [36, 1.5], [47, 1.5], [50, 1.5], [58, 1.5]]) },
-  { id: 'cS', kind: 'comm', sector: 'S', pts: radial(180, [[14, 0], [19, 1.5], [36, 1.5], [47, 1.5], [50, 1.5], [58, 1.5]]) },
-  { id: 'cW', kind: 'comm', sector: 'W', pts: radial(270, [[14, 0], [20, 1.0], [30, 1.0], [40, 1.0], [46, 1.0], [54, 1.0]]) },
-  { id: 'xN1', kind: 'comm', sector: 'N', pts: [[...polar(58, -40), 1.5], [...polar(47, -45), 1.5], [...polar(36, -50), 1.5]] },
-  { id: 'xN2', kind: 'comm', sector: 'N', pts: [[...polar(58, 40), 1.5], [...polar(47, 45), 1.5], [...polar(36, 50), 1.5]] },
-  { id: 'xE2', kind: 'comm', sector: 'E', pts: [[...polar(58, 130), 1.5], [...polar(47, 130), 1.5], [...polar(36, 130), 1.5]] },
-  { id: 'xS1', kind: 'comm', sector: 'S', pts: [[...polar(58, 140), 1.5], [...polar(47, 140), 1.5], [...polar(36, 140), 1.5]] },
-  { id: 'xS2', kind: 'comm', sector: 'S', pts: [[...polar(58, 220), 1.5], [...polar(47, 225), 1.5], [...polar(36, 230), 1.5]] },
-  { id: 'ramp', kind: 'comm', sector: null, pts: [[-3.0, 1.8, 1.2], [-6, 1.8, 0.6], [-9.5, 1.8, 0]] },
+  { id: 'N1', kind: 'front', sector: 'N', pts: arc(F, -42, 42, 7, 1.3) },
+  { id: 'E1', kind: 'front', sector: 'E', pts: arc(F, 52, 128, 7, 1.3) },
+  { id: 'S1', kind: 'front', sector: 'S', pts: arc(F, 140, 220, 7, 1.3) },
+  { id: 'W1', kind: 'front', sector: 'W', pts: arc(F - 3, 250, 290, 8, 1.0, 1.4) },
+  { id: 'R2', kind: 'second', sector: null, pts: arc(S2, -70, 250, 10, 1.45, 0.8) },
+  { id: 'cN', kind: 'comm', sector: 'N', pts: radial(0, [[10, 0], [14, 1.4], [S2, 1.45, 1], [30, 1.45], [D, 1.45, 1], [37, 1.4], [F, 1.3, 1]]) },
+  { id: 'cE', kind: 'comm', sector: 'E', pts: radial(90, [[10, 0], [14, 1.4], [S2, 1.45, 1], [30, 1.45], [D, 1.45, 1], [37, 1.4], [F, 1.3, 1]]) },
+  { id: 'cS', kind: 'comm', sector: 'S', pts: radial(180, [[10, 0], [14, 1.4], [S2, 1.45, 1], [30, 1.45], [D, 1.45, 1], [37, 1.4], [F, 1.3, 1]]) },
+  { id: 'cW', kind: 'comm', sector: 'W', pts: radial(270, [[10, 0], [15, 0.95], [22, 1.0], [28, 1.0], [D, 1.0, 1], [F - 3, 1.0, 1]]) },
+  { id: 'xN1', kind: 'comm', sector: 'N', pts: [[...polar(F, -42), 1.3, 1], [...polar(34, -46), 1.4, 0.9], [...polar(S2, -50), 1.45, 1]] },
+  { id: 'xN2', kind: 'comm', sector: 'N', pts: [[...polar(F, 42), 1.3, 1], [...polar(34, 46), 1.4, 0.9], [...polar(S2, 50), 1.45, 1]] },
+  { id: 'xE2', kind: 'comm', sector: 'E', pts: [[...polar(F, 128), 1.3, 1], [...polar(34, 131), 1.4, 0.9], [...polar(S2, 130), 1.45, 1]] },
+  { id: 'xS1', kind: 'comm', sector: 'S', pts: [[...polar(F, 140), 1.3, 1], [...polar(34, 137), 1.4, 0.9], [...polar(S2, 140), 1.45, 1]] },
+  { id: 'xS2', kind: 'comm', sector: 'S', pts: [[...polar(F, 220), 1.3, 1], [...polar(34, 225), 1.4, 0.9], [...polar(S2, 230), 1.45, 1]] },
+  { id: 'sN1', kind: 'sap', sector: 'N', pts: sap(F, -20, 4.5, 1.2) },
+  { id: 'sN2', kind: 'sap', sector: 'N', pts: sap(F, 22, 3.5, 1.2) },
+  { id: 'sE1', kind: 'sap', sector: 'E', pts: sap(F, 74, 4, 1.2) },
+  { id: 'sS1', kind: 'sap', sector: 'S', pts: sap(F, 196, 4, 1.2) },
+  { id: 'ramp', kind: 'comm', sector: null, pts: [[-4.0, 1.8, 1.2, 0.9], [-7, 1.8, 0.6, 0.9], [-10.5, 1.8, 0, 1]] },
   // входы во взводные блиндажи
-  { id: 'dN', kind: 'stub', pts: [[0, -50, 1.5], [2.8, -50, 1.5]] },
-  { id: 'dE', kind: 'stub', pts: [[50, 0, 1.5], [50, 2.8, 1.5]] },
-  { id: 'dS', kind: 'stub', pts: [[0, 50, 1.5], [-2.8, 50, 1.5]] },
-  { id: 'dW', kind: 'stub', pts: [[-46, 0, 1.0], [-46, -2.8, 1.0]] },
+  { id: 'dN', kind: 'stub', pts: [[0, -D, 1.45, 0.8], [2.8, -D, 1.45, 0.8]] },
+  { id: 'dE', kind: 'stub', pts: [[D, 0, 1.45, 0.8], [D, 2.8, 1.45, 0.8]] },
+  { id: 'dS', kind: 'stub', pts: [[0, D, 1.45, 0.8], [-2.8, D, 1.45, 0.8]] },
+  { id: 'dW', kind: 'stub', pts: [[-D, 0, 1.0, 0.8], [-D, -2.8, 1.0, 0.8]] },
 ];
 
 // ---------------- рельеф ----------------
@@ -49,12 +77,12 @@ export function baseGround(x, z) {
   const r = Math.hypot(x, z);
   let h = HQ_GROUND;
   if (r > FLAT_R) {
-    const d = Math.min(r, 60) - FLAT_R;
+    const d = Math.min(r, R_EDGE) - FLAT_R;
     h -= d * d * 0.0011;
-    if (r > 60) h -= (r - 60) * 0.03; // за передним краем — пологий скат, поле видно из траншеи
+    if (r > R_EDGE) h -= (r - R_EDGE) * 0.03; // за передним краем — пологий скат, поле видно из траншеи
     h += (Math.sin(x * 0.13) + Math.cos(z * 0.11)) * 0.25 * Math.min(1, d / 10);
   }
-  if (x < -36) h -= 0.5 * Math.min(1, (-36 - x) / 8); // болото на западе
+  if (x < -26) h -= 0.5 * Math.min(1, (-26 - x) / 7); // болото на западе
   return h;
 }
 
@@ -77,9 +105,10 @@ export function carve(x, z) {
       if (Math.abs(x - a[0]) > 12 && Math.abs(x - b[0]) > 12) continue;
       if (Math.abs(z - a[1]) > 12 && Math.abs(z - b[1]) > 12) continue;
       const [d, t] = segDist(x, z, a[0], a[1], b[0], b[1]);
-      if (d > 1.9) continue;
+      const wd = ((a[3] ?? 1) + ((b[3] ?? 1) - (a[3] ?? 1)) * t) * 0.9;
+      if (d > wd + 1.0) continue;
       const depth = a[2] + (b[2] - a[2]) * t;
-      const k = d <= 0.9 ? 1 : 1 - (d - 0.9) / 1.0;
+      const k = d <= wd ? 1 : 1 - (d - wd) / 1.0;
       const c = depth * k * k * (3 - 2 * k);
       if (c > best) best = c;
     }
@@ -89,14 +118,14 @@ export function carve(x, z) {
 
 // ---------------- постройки ----------------
 // sunk: пол ниже земли (вход из траншеи); ground: на поверхности
-export const HQ_RECT = [-3, 6, -4, 3];
+export const HQ_RECT = [-4, 6, -5, 4];
 export const DUGOUTS = [
-  { id: 'dugN', unitSector: 'N', rect: [2, 6, -52, -48], door: 'w', depth: 1.5, name: 'Блиндаж 1-го взвода' },
-  { id: 'dugE', unitSector: 'E', rect: [48, 52, 2, 6], door: 'n', depth: 1.5, name: 'Блиндаж 2-го взвода' },
-  { id: 'dugS', unitSector: 'S', rect: [-6, -2, 48, 52], door: 'e', depth: 1.5, name: 'Блиндаж 3-го взвода' },
-  { id: 'dugW', unitSector: 'W', rect: [-48, -44, -6, -2], door: 's', depth: 1.0, name: 'Землянка заставы «Запад»' },
-  { id: 'dugR', role: 'reserve', rect: [-17, -12, 9, 13], door: 'e', ground: true, name: 'Укрытие резерва' },
-  { id: 'med', role: 'med', rect: [9, 15, 5, 10], door: 'w', ground: true, name: 'Медпункт' },
+  { id: 'dugN', unitSector: 'N', theme: 'orderly', rect: [2, 7, -35, -31], door: 'w', depth: 1.45, name: 'Блиндаж 1-го взвода' },
+  { id: 'dugE', unitSector: 'E', theme: 'trophy', rect: [31, 35, 2, 7], door: 'n', depth: 1.45, name: 'Блиндаж 2-го взвода' },
+  { id: 'dugS', unitSector: 'S', theme: 'homely', rect: [-7, -2, 31, 35], door: 'e', depth: 1.45, name: 'Блиндаж 3-го взвода' },
+  { id: 'dugW', unitSector: 'W', theme: 'scout', rect: [-35, -31, -7, -2], door: 's', depth: 1.0, name: 'Землянка заставы «Запад»' },
+  { id: 'dugR', role: 'reserve', theme: 'barracks', rect: [-15, -10, 6, 10], door: 'e', ground: true, name: 'Укрытие резерва' },
+  { id: 'med', role: 'med', theme: 'med', rect: [8, 14, 4, 9], door: 'w', ground: true, name: 'Медпункт' },
 ];
 for (const d of DUGOUTS) {
   const cx = (d.rect[0] + d.rect[1]) / 2, cz = (d.rect[2] + d.rect[3]) / 2;
@@ -105,17 +134,19 @@ for (const d of DUGOUTS) {
 }
 
 export const SPOTS = {
-  depot: [-13, -4.5],
-  engYard: [12, -12],
-  hqDoorIn: [-2.2, 1.8],
-  hqDoorOut: [-9.5, 1.8],
-  np: polar(60, -24),
-  res: { hq: [-7, -9], center: [-10, 11], nearN: [-5, -27], nearE: [27, 5], nearS: [5, 27] },
-  campfire: [-8, 15],
+  depot: [-12.5, -7],
+  engYard: [11, -10],
+  hqDoorIn: [-3.2, 1.8],
+  hqDoorOut: [-10.5, 1.8],
+  np: (() => { const p = TRENCHES.find((t) => t.id === 'sN1').pts[2]; return [p[0], p[1]]; })(),
+  res: { hq: [-6, -10], center: [-5, 10.5], nearN: [-4, -20], nearE: [20, 4], nearS: [4, 20] },
+  campfire: [-5.5, 12],
+  generator: [-7.4, -2.8],
+  kitchen: [1.5, 12.5],
 };
 
 // ---------------- карта высот (сетка 1 м) ----------------
-export const GRID = { min: -72, max: 72, step: 1 };
+export const GRID = { min: -54, max: 54, step: 1 };
 const N = (GRID.max - GRID.min) / GRID.step + 1;
 let HEIGHTS = null;
 export function heights() {
@@ -165,7 +196,7 @@ export function zoneAt(x, z) {
   const h = inHole(x, z);
   if (h) return h.id === 'hq' ? 'hq' : 'dug:' + h.id;
   const r = Math.hypot(x, z);
-  if (r < 30) return 'rear';
+  if (r < 20) return 'rear';
   return sectorOfAngle(x, z);
 }
 
@@ -199,14 +230,17 @@ for (const s of ['N', 'E', 'S', 'W']) {
 
 // ---------------- указатели ----------------
 export const SIGNS = [
-  { at: polar(16, 0), text: ['1 ВЗВОД ↑', 'СЕВЕР'], face: 0 },
-  { at: polar(16, 90), text: ['2 ВЗВОД →', 'ВОСТОК'], face: 90 },
-  { at: polar(16, 180), text: ['3 ВЗВОД ↓', 'ЮГ'], face: 180 },
-  { at: polar(16, 270), text: ['ЗАСТАВА', 'БОЛОТО'], face: 270 },
-  { at: [-10.5, 0], text: ['ШТАБ', '← ВХОД'], face: 270 },
-  { at: [8, 4], text: ['МЕДПУНКТ', '+'], face: 45 },
-  { at: [-12, -1], text: ['СКЛАД', ''], face: 300 },
-  { at: [-11, 8], text: ['РЕЗЕРВ', ''], face: 250 },
+  { at: polar(11.5, 8), text: ['1 ВЗВОД ↑', 'СЕВЕР'], face: 0 },
+  { at: polar(11.5, 98), text: ['2 ВЗВОД →', 'ВОСТОК'], face: 90 },
+  { at: polar(11.5, 172), text: ['3 ВЗВОД ↓', 'ЮГ'], face: 180 },
+  { at: polar(11.5, 262), text: ['ЗАСТАВА', 'БОЛОТО'], face: 270 },
+  { at: [-11.5, 0], text: ['ШТАБ', '← ВХОД'], face: 270 },
+  { at: [7, 2.8], text: ['МЕДПУНКТ', '+'], face: 45 },
+  { at: [-9.5, -4], text: ['СКЛАД', ''], face: 300 },
+  { at: [-8.5, 5], text: ['РЕЗЕРВ', ''], face: 250 },
+  { at: polar(R_SECOND + 2.5, 8), text: ['ВТОРАЯ', 'ЛИНИЯ'], face: 0 },
+  { at: polar(R_SECOND + 2.5, 98), text: ['ВТОРАЯ', 'ЛИНИЯ'], face: 90 },
+  { at: polar(R_SECOND + 2.5, 172), text: ['ВТОРАЯ', 'ЛИНИЯ'], face: 180 },
 ];
 
 // ---------------- граф маршрутов ----------------
@@ -236,7 +270,7 @@ export function buildNav() {
   const inside = add(0.3, -0.9, 'hqTable'); link(inside, add(0, 1.4, 'hqAnte')); link(nodes.length - 1, doorIn);
   R(...SPOTS.depot, 'depot'); R(...SPOTS.engYard, 'eng');
   for (const [k, v] of Object.entries(SPOTS.res)) R(v[0], v[1], 'res:' + k);
-  R(-6, 6, 'mid1'); R(6, -8, 'mid2'); R(6, 8, 'mid3'); R(-6, -8, 'mid4');
+  R(-7, 6, 'mid1'); R(7, -7, 'mid2'); R(5, 9, 'mid3'); R(-8, -7.5, 'mid4'); R(...SPOTS.kitchen, 'kitchen'); R(...SPOTS.generator, 'gen');
   for (const d of DUGOUTS) {
     const [cx, cz] = d.center;
     const di = add(cx, cz, 'in:' + d.id);

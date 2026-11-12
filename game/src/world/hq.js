@@ -59,12 +59,14 @@ export function buildHQ(scene, tex, lights) {
   }
 
   // Комната командира
-  room(-3, 3, -4, 0, { n: [[0.6, 1.6, 1.35, 1.65]], e: [[-2.8, -1.6]], s: [[-0.7, 0.7]] });
+  room(-4, 3, -5, 0, { n: [[0.2, 1.4, 1.35, 1.65]], e: [[-3.5, -2.0]], s: [[-1.3, 0.3]] });
   // Узел связи
-  room(3, 6, -4, -1, { w: null, s: [] });
+  room(3, 6, -5, -1, { w: null, s: [] });
   // стена между КП и связью уже есть (e). Узел связи: своя западная стена не нужна.
   // Предбанник
-  room(-3, 3, 0, 3, { n: null, w: [[1.2, 2.4]] });
+  room(-4, 3, 0, 4, { n: null, w: [[1.2, 2.4]] });
+  // всё, что ниже, расставлено в старой сетке и затем разносится по просторным комнатам (hqMap)
+  const mark = root.children.length, sMark = W.solids.length, lMark = lights.list.length;
 
 
   // ---- стол с картой ----
@@ -201,10 +203,40 @@ export function buildHQ(scene, tex, lights) {
   box(root, 1.2, 0.18, 0.5, 1.1, 1.26, -4.3, mBag);
   const emb = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 0.2), mDark); emb.visible = false; emb.position.set(1.1, 1.5, -3.95); root.add(emb);
   addI(W, emb, 'embrasure', 'Амбразура');
-  box(root, 9.6, 0.5, 7.6, 1.5, H + 0.35, -0.5, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
-  // глухой земляной массив в «пустом» углу котлована штаба
-  box(root, 3.0, H + 0.1, 4.0, 4.5, (H + 0.1) / 2, 1.0, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
-  for (let i = 0; i < 9; i++) box(root, 0.9, 0.3, 0.5, -2.6 + i * 1.05, H + 0.75, -4.1, mBag, { ry: (i % 3) * 0.05 });
+  // ---- разнести обстановку по расширенным комнатам ----
+  const kids = root.children.slice(mark);
+  for (const o of kids) { const [x, z] = hqMap(o.position.x, o.position.z); o.position.x = x; o.position.z = z; }
+  for (let i = sMark; i < W.solids.length; i++) {
+    const [x0, x1, z0, z1] = W.solids[i];
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, [nx, nz] = hqMap(cx, cz);
+    W.solids[i] = [x0 + nx - cx, x1 + nx - cx, z0 + nz - cz, z1 + nz - cz];
+  }
+  for (let i = lMark; i < lights.list.length; i++) { const l = lights.list[i]; const [x, z] = hqMap(l.pos.x, l.pos.z); l.pos.x = x; l.pos.z = z; }
+  door.position.set(-4.0, 0, 1.2);
+  W.refs.lampBase = W.refs.lampG.position.clone();
+  // большой рабочий стол капитана (новая сетка)
+  {
+    const x = 1.25, z = -0.8;
+    box(root, 1.7, 0.07, 0.85, x, 0.78, z, mWood);
+    for (const [dx, dz] of [[-0.78, -0.36], [0.78, -0.36], [-0.78, 0.36], [0.78, 0.36]]) box(root, 0.08, 0.78, 0.08, x + dx, 0.39, z + dz, mLog);
+    box(root, 0.45, 0.6, 0.7, x + 0.55, 0.3, z + 0.02, mWood); // тумба
+    box(root, 0.45, 0.45, 0.45, x, 0.23, z - 0.75, mWood);     // стул
+    box(root, 0.45, 0.5, 0.06, x, 0.7, z - 0.98, mWood);
+    for (let i = 0; i < 6; i++) box(root, 0.22, 0.01, 0.3, x - 0.45 + (i % 3) * 0.06, 0.82 + i * 0.006, z + 0.05, mPaper, { ry: (i - 3) * 0.1 });
+    cyl(root, 0.035, 0.03, 0.09, 6, x + 0.25, 0.86, z - 0.2, M('mugCap', { color: 0x6a3a2a }));
+    box(root, 0.18, 0.08, 0.1, x + 0.6, 0.86, z - 0.25, M('binoc', { color: 0x2a2c28 }));
+    cyl(root, 0.03, 0.03, 0.28, 5, x - 0.7, 0.95, z + 0.25, mMetalD);
+    cyl(root, 0.05, 0.13, 0.12, 6, x - 0.7, 1.12, z + 0.25, M('greenShade', { color: 0x2e4a30 }));
+    box(root, 0.07, 0.05, 0.07, x - 0.7, 1.05, z + 0.25, mat({ color: 0xffd080, emissive: 0xe0a050 }));
+    const l = lights.add(new THREE.Vector3(x - 0.6, 1.05, z + 0.1), 0xffc070, 2.8, 0.85); l.flicker = 0.05;
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.3, 0.85), mDark); hit.visible = false; hit.position.set(x, 0.92, z); root.add(hit);
+    addI(W, hit, 'personnel', 'Стол капитана — личный состав и сводки');
+    W.solids.push([x - 0.9, x + 0.9, z - 1.0, z + 0.45]);
+  }
+  // крыша и земляной массив — уже в новых размерах
+  box(root, 10.8, 0.5, 9.8, 1.0, H + 0.35, -0.5, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
+  box(root, 3.0, H + 0.1, 5.0, 4.5, (H + 0.1) / 2, 1.5, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
+  for (let i = 0; i < 10; i++) box(root, 0.9, 0.3, 0.5, -3.6 + i * 1.05, H + 0.75, -5.1, mBag, { ry: (i % 3) * 0.05 });
   // ---- пыль ----
   const dustN = 120;
   const dg = new THREE.BufferGeometry();
@@ -231,7 +263,21 @@ export function buildHQ(scene, tex, lights) {
     gusev: new THREE.Vector3(-1.4, 0, 2.2),
     wounded: [[-1.6, 0.9], [-0.6, 0.9], [0.4, 0.9], [1.4, 0.9], [-1.6, 2.2], [0.4, 2.2]],
   };
+  const sp = W.refs.spots;
+  for (const k of Object.keys(sp)) {
+    if (k === 'outside' || k === 'door') continue;
+    if (k === 'wounded') { sp.wounded = sp.wounded.map(([x, z]) => hqMap(x, z)); continue; }
+    const [x, z] = hqMap(sp[k].x, sp[k].z); sp[k].x = x; sp[k].z = z;
+  }
+  sp.door.set(-3.4, 0, 1.8);
   return W;
+}
+
+/** Старая сетка штаба → расширенные комнаты (КП 7×5, связь 3×4, предбанник 7×4). */
+export function hqMap(x, z) {
+  if (x > 3.05 && z < -0.95) return [x, -1 + (z + 1) * 4 / 3];
+  if (z < 0) return [x * 7 / 6 - 0.5, z * 1.25];
+  return [x * 7 / 6 - 0.5, z * 4 / 3];
 }
 
 function addI(W, obj, id, label, pad = 0) {

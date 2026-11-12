@@ -179,8 +179,8 @@ export class Enemy {
     p._kBefore = p.killed; p._wBefore = p.wounded;
     const o = sim.officerOf(p);
     // командир доложит; скорость зависит от характера
-    const late = o.arch === 'initiator' && o.autonomy > 60 ? 15 : o.arch === 'natural' && o.autonomy > 70 ? 8 : 0;
-    const est = op.init;
+    const late = o.arch === 'initiator' && o.autonomy > 60 ? 15 : o.arch === 'natural' && o.autonomy > 70 ? 8 : 0 + (o.shaky ? 10 : 0);
+    const est = op.init * (o.shaky ? 1.5 : 1); // издёрганный командир ошибается в оценке
     sim.send({ from: o, unit: p.id, kind: 'contact', urgent: true, expire: 15, delay: late,
       text: sayContact(sim, o, op, est), intel: { combat: true, enemy: sim.estimate(o, est) },
       options: [{ label: 'Понял. Держитесь.', fn: () => ({}) }, { label: 'Действуйте по обстановке.', fn: () => { p.order.freedom = 'free'; sim.autonomy(o, 3); return { text: 'Есть.' }; } }] });

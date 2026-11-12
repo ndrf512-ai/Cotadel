@@ -26,6 +26,7 @@ export class Sim {
         ...o, ...ARCH[o.arch], stress: 10, memory: [], interference: 0, alive: true, lastOrderT: -999,
         lastAskT: {}, grudge: 0, promise: null, incident: null, waitingAnswer: null, inHQ: false, praised: 0, reprimanded: 0,
       };
+      this.initCharacter(this.officers[o.id]);
     }
     this.platoons = {};
     for (const p of PLATOONS) {
@@ -64,6 +65,25 @@ export class Sim {
     this.fx = []; // визуальные/звуковые события для мира: {type, sector, near}
     this.subtitle = null;
     this._tick = 0;
+  }
+
+  /** Черты, которые проявляются в поведении: решительность, манера докладывать, отношение к капитану. */
+  initCharacter(o) {
+    const A = o.arch;
+    o.resolve ??= { executor: 50, initiator: 90, cautious: 25, natural: 80, veteran: 70, timid: 20 }[A] ?? 50;
+    o.style ??= { executor: 'all', initiator: 'serious', cautious: 'all', natural: 'serious', veteran: 'serious', timid: 'all' }[A] ?? 'all';
+    o.proposes ??= ['initiator', 'natural', 'veteran'].includes(A);
+    o.respect ??= 50;        // уважение к капитану
+    o.confidence ??= 55;     // уверенность в решениях капитана
+    if (o.style === 'serious') o.reportEvery = 0;
+  }
+
+  /** Действенная самостоятельность: доверие к капитану даёт смелость действовать самому. */
+  effAuto(o) { return clamp(o.autonomy + (o.confidence - 50) * 0.3, 0, 100); }
+
+  rel(o, key, d, why) {
+    o[key] = clamp((o[key] ?? 50) + d, 0, 100);
+    if (why && Math.abs(d) >= 4) this.remember(o, why, d);
   }
 
   // ===================== Время =====================
@@ -158,6 +178,8 @@ export class Sim {
     // потери противника
     let eLoss = def * 0.064 * rnd(0.6, 1.4) * (op.type === 'feint' ? 0.35 : 1);
     if (sec.mines > 0 && op.minutes < 15) { eLoss += 1.5; sec.mines = Math.max(0, sec.mines - 0.1); }
+    const hp = this.holderOf(sec.id);
+    if (hp && hp.ambush > this.t && op.minutes < 20) eLoss *= 1.25;
     eLoss = Math.min(op.str, eLoss);
     op.str -= eLoss; op.lost += eLoss; this.stats.enemyKilled += eLoss * 0.4; this.enemy.pool -= 0;
     // наши потери
@@ -304,6 +326,7 @@ export class Sim {
     };
     this.officers[id] = nu;
     p.officer = id;
+    this.initCharacter(this.officers[id]);
     p.morale = clamp(p.morale - 12, 0, 100);
     for (const x of Object.values(this.officers)) if (x.alive && x !== nu) x.stress += 8;
     this.send({ from: nu, unit: p.id, kind: 'officerKilled', urgent: true, expire: 60,
@@ -322,7 +345,11 @@ export class Sim {
       p.where = { type: 'res', loc: 'center' };
       p.sector = null;
       const o = this.officerOf(p);
-      if (o) o.incident = { kind: 'lost', t: this.t, ratio: op.maxRatio, followed: p.order.priority === 'hold' };
+      if (o) {
+        o.incident = { kind: 'lost', t: this.t, ratio: op.maxRatio, followed: p.order.priority === 'hold' };
+        if (o.deniedReserve && this.t - o.deniedReserve < 120) this.rel(o, 'confidence', -10, 'просил резерв — не дали, потеряли участок');
+        if (o.forced && this.t - o.forced.t < 180) this.rel(o, 'confidence', -10, 'капитан настоял — и мы всё потеряли');
+      }
       if (p.id === sec.holder) this.report(p, 'lost', { sector: sec.id }, { urgent: true, intel: { held: 'lost', combat: true } });
     }
     sec.holder = null;
@@ -348,6 +375,8 @@ export class Sim {
       const k = p.killed - (p._kBefore || 0), w = p.wounded - (p._wBefore || 0);
       p._kBefore = p.killed; p._wBefore = p.wounded;
       o.incident = { kind: 'repelled', t: this.t, ratio: op.maxRatio, losses: k + w };
+      if (o.reserveSent && this.t - o.reserveSent < 120) { this.rel(o, 'confidence', 6, 'капитан прислал помощь вовремя — отбились'); o.reserveSent = null; }
+      if (o.forced && this.t - o.forced.t < 180) { this.rel(o, 'confidence', 5, 'капитан настоял — и оказался прав'); o.forced = null; }
       if (p.id === sec.holder) {
         this.report(p, 'repelled', { sector: sec.id, k, w, ammo: p.ammo }, { intel: { combat: false, enemy: 'атака отбита', held: sec.held } });
         // инициатива: преследование
@@ -404,12 +433,12 @@ export class Sim {
       sec.enemyHold = 0;
       p.morale = clamp(p.morale + 10, 0, 100);
       p.ammo += c.own ? 0.6 : 0.3;
-      if (o) { o.incident = { kind: 'counterOk', t: this.t }; if (c.own) this.autonomy(o, 4); }
+      if (o) { o.incident = { kind: 'counterOk', t: this.t }; if (c.own) this.autonomy(o, 4); else this.rel(o, 'confidence', 5, 'контратака по приказу капитана удалась'); }
       this.report(p, 'counterOk', { k }, { intel: { held: sec.held, combat: false } });
     } else {
       sec.enemyHold *= 0.8;
       p.morale = clamp(p.morale - 6, 0, 100);
-      if (o) o.incident = { kind: 'counterFail', t: this.t, own: c.own };
+      if (o) { o.incident = { kind: 'counterFail', t: this.t, own: c.own }; if (!c.own) this.rel(o, 'confidence', o.forced ? -10 : -6, 'контратака по приказу капитана провалилась'); }
       this.report(p, 'counterFail', { k }, {});
     }
   }
@@ -517,6 +546,7 @@ export class Sim {
     const p = this.platoonOf(o);
     if (!p || p.men <= 0) return;
     o.stress = clamp(o.stress - 0.03, 0, 100);
+    this.selfManage(o, p);
     // регулярные доклады у пунктуальных
     if (o.reportEvery && p.where.type === 'sector' && !this.sectors[p.where.s].op) {
       if (!o.nextReport) o.nextReport = this.t + rnd(20, o.reportEvery);
@@ -597,6 +627,55 @@ export class Sim {
     if (o.stress > 85 && o.resil < 50 && !this.flags['break_' + o.id]) {
       this.flags['break_' + o.id] = true;
       this.breakdown(o, p);
+    }
+  }
+
+  /** Командир сам ведёт хозяйство взвода — так, как умеет и как ему свойственно. */
+  selfManage(o, p) {
+    const inSec = p.where.type === 'sector';
+    const sec = inSec ? this.sectors[p.where.s] : null;
+    const quiet = !sec || !sec.op;
+    // отдых по сменам: опытный и заботливый командир даёт людям спать по очереди
+    if (inSec && quiet && !o.inHQ) {
+      const k = 0.0022 * (o.exp / 60) * (0.5 + o.care / 140);
+      p.fatigue = clamp(p.fatigue - k, 0, 100);
+      if (o.style === 'all' && p.fatigue > 45 && !this.recentFlag('rest_' + o.id, 360)) {
+        this.send({ from: o, unit: p.id, kind: 'selfRest', quiet: true, expire: 30, options: [{ label: 'Понял.', fn: () => ({}) }],
+          text: { executor: `${o.short}: «Докладываю: организовал отдых по сменам — треть взвода спит, остальные на постах.»`, cautious: `${o.short}: «Капитан, людей кладу спать по очереди. Иначе к утру никого не останется.»`, timid: `${o.short}: «Разрешите… я положил половину людей спать. Это ничего?»` }[o.arch] || `${o.short}: «Люди отдыхают по сменам.»` });
+      }
+    }
+    // дисциплина держится на авторитете
+    const target = 35 + o.auth * 0.45;
+    if (p.morale < target) p.morale = clamp(p.morale + 0.003 * (o.auth / 60), 0, 100);
+    // патроны: осторожный спрашивает раньше
+    const thr = 1.2 + o.caution / 110;
+    if (inSec && quiet && p.ammo < thr && !this.recentlyAsked(o, 'ammo', 120) && !(this.deliveries || []).some((d) => d.p === p.id)) this.askAmmo(p);
+    // противник готовит атаку на участок
+    if (inSec && quiet && this.enemy.visibleNear(p.where.s) && !this.recentlyAsked(o, 'prep', 300) && (o.proposes || o.resolve < 40)) {
+      o.lastAskT.prep = this.t;
+      this.prepReaction(o, p, sec);
+    }
+    // издёрганный командир ошибается
+    o.shaky = o.stress > 60 && o.resil < 55;
+  }
+
+  prepReaction(o, p, sec) {
+    const s = sec.id;
+    if (o.proposes) {
+      const txt = { initiator: `${o.short}: «Капитан, они накапливаются передо мной. Предлагаю не ждать: выдвину пулемёт в сапу и встречу их на подходе. Разрешаете?»`,
+        natural: `${o.short}: «Перед нами копошатся. Я бы поднял брустверы и перенёс пулемёт. Займусь, если не против.»`,
+        veteran: `${o.short}: «Готовятся. Могу поставить растяжки на тропах. Делать?»` }[o.arch] || `${o.short}: «Противник готовится. Есть предложение.»`;
+      this.send({ from: o, unit: p.id, kind: 'proposal', expire: 40, text: txt, options: [
+        { label: 'Делайте.', fn: () => { p.ambush = this.t + 240; sec.fort = clamp(sec.fort + 6, 0, 95); p.fatigue = clamp(p.fatigue + 5, 0, 100); this.autonomy(o, 3); this.rel(o, 'confidence', 2); return { text: 'Есть! Встретим.' }; } },
+        { label: 'Только укрепитесь, вперёд не высовываться.', fn: () => { sec.fort = clamp(sec.fort + 8, 0, 95); p.fatigue = clamp(p.fatigue + 4, 0, 100); return { text: 'Понял. Окопаемся.' }; } },
+        { label: 'Нет. Сидеть тихо.', fn: () => { this.autonomy(o, -2); return { text: o.arch === 'initiator' ? 'Жаль. Есть сидеть.' : 'Понял.' }; } },
+      ], onIgnore: () => { if (this.effAuto(o) > 55) { p.ambush = this.t + 240; this.addLog(o.short, 'Не дождавшись ответа, сам выдвинул пулемёт вперёд.'); } } });
+    } else {
+      this.send({ from: o, unit: p.id, kind: 'askOrders', expire: 40, text: { cautious: `${o.short}: «Капитан, они готовятся напасть. Что прикажете? Может, прислать резерв поближе?..»`, timid: `${o.short}: «Капитан… перед нами движение. Что мне делать?»` }[o.arch] || `${o.short}: «Противник готовится. Жду указаний.»`, options: [
+        { label: 'Держаться. При сильном натиске — отходить на вторую линию.', fn: () => { p.order = { ...p.order, priority: 'people', freedom: 'free', conditional: true }; this.rel(o, 'confidence', 3); return { text: 'Понял… понял. Так и сделаю.' }; } },
+        { label: 'Резерв подтянем ближе к вам.', fn: () => { const r = this.reservePlatoons()[0]; if (!r) return { text: 'Резерва нет, капитан?.. Ясно.' }; this.applyOrder(r, { task: 'moveRes', loc: 'near' + s, locName: '' }); this.rel(o, 'confidence', 5); return { text: 'Спасибо, капитан. Так спокойнее.' }; } },
+        { label: 'Без паники. Действуйте сами.', fn: () => { this.autonomy(o, 4); o.stress += 6; return { text: '…Есть.' }; } },
+      ] });
     }
   }
 
@@ -745,6 +824,7 @@ export class Sim {
       promise: null, incident: null, waitingAnswer: null, inHQ: false, praised: 0, reprimanded: 0,
       look: { beard: Math.random() < 0.4, pale: Math.random() < 0.5, cap: true }, bio: `Назначен капитаном. ${cand.desc}`, replaced: old ? old.name : null };
     p.officer = id;
+    this.initCharacter(this.officers[id]);
     this.cands = this.cands.filter((c) => c !== cand);
     this.addLog('Кадры', `${p.name}: командир — ${cand.name}${old ? ` (вместо ${old.short})` : ''}.`, 'staffchange');
     return this.officers[id];
@@ -759,6 +839,7 @@ export class Sim {
       trust: 50, autonomy: 20, stress: 20, memory: [], interference: 0, alive: true, lastOrderT: -999, lastAskT: {}, grudge: 0, promise: null, incident: null, waitingAnswer: null, inHQ: false, praised: 0, reprimanded: 0,
       look: { beard: false, pale: false, cap: true }, bio: `Назначен вместо ${o.short}.`, replaced: o.name };
     p.officer = id;
+    this.initCharacter(this.officers[id]);
     p.morale = clamp(p.morale - 8, 0, 100);
     for (const x of Object.values(this.officers)) if (x.alive && x.id !== id) this.trust(x, -3, `капитан снял ${o.short}`);
   }
@@ -770,14 +851,14 @@ export class Sim {
       { label: 'Объявить благодарность.', fn: () => {
         const deserved = inc && ['repelled', 'counterOk', 'raidOk', 'withdraw'].includes(inc.kind);
         o.praised++;
-        if (deserved) { this.trust(o, 7, 'капитан отметил нашу работу'); p.morale = clamp(p.morale + 8, 0, 100); return { text: '— Служу! — Он едва заметно улыбается.' }; }
+        if (deserved) { this.rel(o, 'respect', 4); this.trust(o, 7, 'капитан отметил нашу работу'); p.morale = clamp(p.morale + 8, 0, 100); return { text: '— Служу! — Он едва заметно улыбается.' }; }
         this.trust(o, 2); return { text: '…Спасибо. — Похоже, он не понял, за что.' };
       } },
       { label: 'Сделать выговор.', fn: () => {
         o.reprimanded++;
         const fair = inc && (inc.kind === 'disobey' || inc.kind === 'raidFail' && inc.own || (inc.kind === 'withdraw' && inc.ratio < 0.9) || inc.kind === 'counterFail' && inc.own);
-        if (fair) { o.disc = clamp(o.disc + 10, 0, 100); this.trust(o, -2); return { text: 'Есть… Виноват. Учту.' }; }
-        this.trust(o, -14, 'незаслуженный выговор'); o.grudge++;
+        if (fair) { o.disc = clamp(o.disc + 10, 0, 100); this.trust(o, -2); this.rel(o, 'respect', ['executor', 'veteran'].includes(o.arch) ? 3 : -1); return { text: 'Есть… Виноват. Учту.' }; }
+        this.trust(o, -14, 'незаслуженный выговор'); o.grudge++; this.rel(o, 'respect', -10); this.rel(o, 'confidence', -5);
         for (const x of Object.values(this.officers)) if (x.alive && x !== o && x.trust > 0) this.trust(x, -2);
         return { text: 'Он бледнеет. «Капитан, при всём уважении — я сделал всё, что мог. Разрешите идти.»' };
       } },
@@ -853,12 +934,16 @@ export class Sim {
     this.applyOrder(p, ord);
     if (ord.task === 'report') return { text: '' };
     if (ord.task === 'come') return { text: o.arch === 'natural' ? 'Сейчас? …Иду.' : 'Есть явиться. Выхожу.' };
-    return { text: repeatOrder(o, ord) };
+    let txt = repeatOrder(o, ord);
+    if (o.confidence < 30) txt += pick([' …Под вашу ответственность, капитан.', ' Опять перекраиваем. Ладно.', ' Сделаю. Но я бы решил иначе.']);
+    else if (o.confidence > 75 && o.arch !== 'executor') txt = pick(['Есть! ', 'Понял вас, капитан. ', '']) + txt;
+    if (o.respect < 30) txt += ' — сухо, без «товарища капитана».';
+    return { text: txt };
   }
 
   wouldRefuse(o, p, ord) {
     if (o.refuses <= 0) return null;
-    const trustF = (60 - o.trust) / 60;
+    const trustF = (60 - o.trust) / 60 + (50 - o.confidence) / 120;
     if (ord.task === 'counter' || ord.task === 'counterSector') {
       const s = ord.task === 'counter' ? p.where.s : ord.sector;
       const sec = this.sectors[s];
