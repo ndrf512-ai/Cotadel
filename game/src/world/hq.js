@@ -42,6 +42,7 @@ export function buildHQ(scene, tex, lights) {
         if (b - a < 0.01) return;
         const m = (a + b) / 2, len = b - a, hh = y1 - y0;
         const mesh = horiz ? box(root, len, hh, 0.12, m, y0 + hh / 2, fixed, mPlV, { seg: 0.8 }) : box(root, 0.12, hh, len, fixed, y0 + hh / 2, m, mPlV, { seg: 0.8 });
+        if (y0 < 0.5) W.solids.push(horiz ? [a, b, fixed - 0.08, fixed + 0.08] : [fixed - 0.08, fixed + 0.08, a, b]);
         return mesh;
       };
       for (const g of list) {
@@ -65,7 +66,6 @@ export function buildHQ(scene, tex, lights) {
   // Предбанник
   room(-3, 3, 0, 3, { n: null, w: [[1.2, 2.4]] });
 
-  W.walk.push([-2.75, 2.75, -3.75, -0.2], [3.2, 5.8, -3.8, -1.2], [-2.75, 2.75, 0.2, 2.8], [2.5, 3.5, -2.7, -1.7], [-0.6, 0.6, -0.5, 0.5]);
 
   // ---- стол с картой ----
   const table = new THREE.Group(); table.position.set(0, 0, -2); root.add(table);
@@ -181,7 +181,7 @@ export function buildHQ(scene, tex, lights) {
   W.refs.stoveGlow = stoveGlow;
   W.refs.stove = lights.add(new THREE.Vector3(-2.2, 0.5, 2.1), 0xff5020, 2.6, 0.7);
   W.refs.stove.flicker = 0.35;
-  W.solids.push([-2.65, -1.95, 2.1, 3]);
+  W.solids.push([-2.6, -2.0, 2.25, 3]);
   W.refs.anteLamp = lights.add(new THREE.Vector3(0, 1.9, 1.5), 0xffa050, 3.6, 0.5);
   W.refs.anteLamp.flicker = 0.1;
   // ящики с патронами, мешки
@@ -195,28 +195,17 @@ export function buildHQ(scene, tex, lights) {
   const door = new THREE.Group(); door.position.set(-3.0, 0, 1.2); root.add(door);
   box(door, 0.08, 2.0, 1.2, 0, 1.0, 0.6, mPlV);
   box(door, 0.1, 0.1, 0.1, 0.06, 1.0, 1.05, mMetal);
+  door.rotation.y = 1.45;
   W.refs.door = door;
-  addI(W, door, 'door', 'Выход из штаба', 0.3);
-  // проход за дверью (виден, когда кто-то входит)
-  box(root, 2.0, 0.1, 1.2, -4.0, 0.2, 1.8, mEarth);
-  box(root, 2.0, 2.4, 0.1, -4.0, 1.2, 1.15, mEarth); box(root, 2.0, 2.4, 0.1, -4.0, 1.2, 2.45, mEarth);
-  box(root, 0.1, 2.4, 1.2, -5.0, 1.2, 1.8, mEarth);
-  box(root, 2.0, 0.1, 1.3, -4.0, 2.4, 1.8, mPlV);
 
-  // ---- снаружи: северная амбразура ----
-  const out = new THREE.Group(); root.add(out);
-  W.refs.outside = out;
-  buildExterior(out, tex);
-  // откосы амбразуры и мешки
-  box(root, 1.2, 0.3, 0.6, 1.1, 1.85, -4.3, mBag);
-  box(root, 1.2, 1.35, 0.6, 1.1, 0.67, -4.3, mEarth);
-  box(root, 0.2, 0.3, 0.6, 0.5, 1.5, -4.3, mBag);
-  box(root, 0.2, 0.3, 0.6, 1.7, 1.5, -4.3, mBag);
+  // ---- амбразура: мешки на подоконнике, насыпь на крыше ----
+  box(root, 1.2, 0.18, 0.5, 1.1, 1.26, -4.3, mBag);
   const emb = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 0.2), mDark); emb.visible = false; emb.position.set(1.1, 1.5, -3.95); root.add(emb);
   addI(W, emb, 'embrasure', 'Амбразура');
-  // земля над блиндажом (чтобы из амбразуры не было видно «пустоты»)
-  box(root, 14, 1.0, 1.0, 0, H + 0.6, -4.6, mEarth);
-
+  box(root, 9.6, 0.5, 7.6, 1.5, H + 0.35, -0.5, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
+  // глухой земляной массив в «пустом» углу котлована штаба
+  box(root, 3.0, H + 0.1, 4.0, 4.5, (H + 0.1) / 2, 1.0, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
+  for (let i = 0; i < 9; i++) box(root, 0.9, 0.3, 0.5, -2.6 + i * 1.05, H + 0.75, -4.1, mBag, { ry: (i % 3) * 0.05 });
   // ---- пыль ----
   const dustN = 120;
   const dg = new THREE.BufferGeometry();
@@ -229,13 +218,14 @@ export function buildHQ(scene, tex, lights) {
 
   // невидимые зоны для NPC
   W.refs.spots = {
-    door: new THREE.Vector3(-2.6, 0, 1.8),
-    outside: new THREE.Vector3(-4.4, 0, 1.8),
+    door: new THREE.Vector3(-2.4, 0, 1.8),
+    outside: new THREE.Vector3(-9.5, 1.2, 1.8),
     visitor: new THREE.Vector3(-0.5, 0, -0.95),
     visitor2: new THREE.Vector3(0.4, 0, -0.85),
     anteMid: new THREE.Vector3(0, 0, 1.4),
     curtain: new THREE.Vector3(0, 0, 0.3),
     olya: new THREE.Vector3(4.75, 0, -2.6),
+    orlov: new THREE.Vector3(-0.9, 0, -2.0),
     gusev: new THREE.Vector3(-1.4, 0, 2.2),
     wounded: [[-1.6, 0.9], [-0.6, 0.9], [0.4, 0.9], [1.4, 0.9], [-1.6, 2.2], [0.4, 2.2]],
   };
@@ -246,66 +236,4 @@ function addI(W, obj, id, label, pad = 0) {
   obj.userData.interact = { id, label };
   obj.traverse?.((c) => { c.userData.interact = { id, label }; });
   W.interact.push(obj);
-}
-
-function buildExterior(out, tex) {
-  const mGround = mat({ map: tex.grass, outdoor: true });
-  const mEarth = mat({ map: tex.earth, outdoor: true });
-  const mWire = mat({ map: tex.wire, outdoor: true, side: THREE.DoubleSide });
-  const mPost = mat({ color: 0x4a3a28, outdoor: true });
-  const mTree = mat({ color: 0x2a2620, outdoor: true });
-  const mBirch = mat({ color: 0x9a968a, outdoor: true });
-  const mSky = mat({ map: tex.sky, color: 0xffffff, outdoor: true });
-  // склон высоты: участок от амбразуры к северу
-  const g = new THREE.PlaneGeometry(90, 90, 18, 18);
-  const pos = g.attributes.position, uv = g.attributes.uv;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i); // y плоскости -> -z мира
-    const z = -y - 45 - 4.4;
-    const dist = Math.max(0, -z - 4.4);
-    const h = 1.15 - dist * 0.09 + Math.sin(x * 0.3) * 0.25 * Math.min(1, dist / 10) + Math.cos(z * 0.2 + x * 0.1) * 0.3 * Math.min(1, dist / 15);
-    pos.setXYZ(i, x, h, z);
-    uv.setXY(i, x / 3, z / 3);
-  }
-  g.computeVertexNormals();
-  const ground = new THREE.Mesh(g, mGround); out.add(ground);
-  // траншея первой линии
-  for (let i = -6; i <= 6; i++) {
-    const x = i * 2.5;
-    const z = -22 + Math.sin(i * 0.9) * 1.5;
-    const y = 1.15 - (-z - 4.4) * 0.09 - 0.2;
-    box(out, 2.6, 0.35, 0.6, x, y, z, mEarth, { ry: Math.sin(i) * 0.3 });
-  }
-  // проволока
-  for (let i = -8; i <= 8; i++) {
-    const x = i * 2; const z = -30 + Math.cos(i * 1.3) * 0.8;
-    const y = 1.15 - (-z - 4.4) * 0.09;
-    box(out, 0.08, 1.1, 0.08, x, y + 0.4, z, mPost, { rz: (i % 2) * 0.2 - 0.1 });
-    plane(out, 2.0, 0.9, x + 1, y + 0.45, z, mWire, { sx: 1, sy: 1 });
-  }
-  // деревья: берёзы на высоте и чёрные обрубки
-  const rr = (a, b) => a + Math.random() * (b - a);
-  for (let i = 0; i < 26; i++) {
-    const x = rr(-40, 40), z = rr(-70, -26);
-    const y = 1.15 - (-z - 4.4) * 0.09;
-    const burned = Math.random() < 0.5;
-    const h = burned ? rr(1, 3) : rr(5, 9);
-    cyl(out, 0.12, 0.18, h, 5, x, y + h / 2 - 0.3, z, burned ? mTree : mBirch);
-    if (!burned) {
-      const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(rr(1.2, 2.2), 0), mat({ color: 0x3c4430, outdoor: true }));
-      crown.position.set(x, y + h - 0.6, z); out.add(crown);
-    }
-  }
-  // дальний лес — силуэт
-  for (let i = 0; i < 20; i++) {
-    const x = -60 + i * 6.5, z = -82;
-    const c = new THREE.Mesh(new THREE.ConeGeometry(3, rr(7, 12), 5), mat({ color: 0x262a22, outdoor: true }));
-    c.position.set(x, -6 + rr(0, 3), z); out.add(c);
-  }
-  // небо (купол)
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(95, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), mSky);
-  sky.material.side = THREE.BackSide; sky.position.set(0, -10, -20);
-  out.add(sky);
-  out.userData.sky = sky;
-  out.userData.groundY = (z) => 1.15 - (-z - 4.4) * 0.09;
 }

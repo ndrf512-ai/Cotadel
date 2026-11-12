@@ -7,6 +7,7 @@ import {
   say, pick, n1, strengthWords, ammoWords, fatigueWords, moraleWords, repeatOrder, orderText, garble, cap,
 } from './lines.js';
 import { Enemy } from './enemy.js';
+import { Staff } from './staff.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -57,6 +58,8 @@ export class Sim {
     this.flags = {};
     this.stats = { enemyKilled: 0, ourKilled: 0, ourWounded: 0, ordersGiven: 0, callsMissed: 0, visits: 0, interventions: 0, trustLog: [] };
     this.enemy = new Enemy(this);
+    this.player = { zone: 'hq', x: 0, z: 0 };
+    this.staff = new Staff(this);
     this.fx = []; // визуальные/звуковые события для мира: {type, sector, near}
     this.subtitle = null;
     this._tick = 0;
@@ -86,6 +89,8 @@ export class Sim {
     this.captainTick();
     this.hqTick();
     this.inboxTick();
+    for (const m of this.inbox) if (!m.routed && this.t >= m.arrive) this.staff.route(m);
+    this.staff.tick();
     if (this.t >= this.reliefT && !this.over) this.finish('victory');
   }
 
@@ -204,7 +209,7 @@ export class Sim {
       if (op.ratio > o.askReserveAt && !this.recentlyAsked(o, 'reserve', 50)) this.askReserve(p, sec);
       return;
     }
-    const free = ord.freedom === 'free' || ord.conditional || (ord.freedom !== 'strict' && o.autonomy >= 35);
+    const free = ord.freedom === 'free' || ord.conditional || this.staff.deleg.withdraw === 'commanders' || (ord.freedom !== 'strict' && o.autonomy >= 35);
     if (free || o.arch === 'cautious' && op.pressure > 0.9) {
       sec.held = 'line2';
       op.pressure = 0.1;
@@ -243,6 +248,7 @@ export class Sim {
     for (const r of res) {
       const eta = RES_LOCS[r.where.loc].t[sec.id] + 5;
       options.push({ label: `Высылаю ${r.name} (${RES_LOCS[r.where.loc].short}, ~${eta} мин)`, fn: () => {
+        if (r.where.type !== 'res') return { text: 'Резерв уже ушёл в другое место.' };
         this.orderMove(r, { task: 'reinforce', sector: sec.id, priority: null, freedom: 'free' });
         this.trust(o, o.arch === 'cautious' ? 6 : 4, 'прислал резерв, когда было тяжело');
         o.reserveSent = this.t;
@@ -342,7 +348,7 @@ export class Sim {
       if (p.id === sec.holder) {
         this.report(p, 'repelled', { sector: sec.id, k, w, ammo: p.ammo }, { intel: { combat: false, enemy: 'атака отбита', held: sec.held } });
         // инициатива: преследование
-        if (o.raids >= 1 && op.str < 60 && sec.held === 'line2' && (o.autonomy > 45 || p.order.freedom === 'free') && chance(0.6)) {
+        if (o.raids >= 1 && this.staff.deleg.initiative !== 'forbid' && op.str < 60 && sec.held === 'line2' && (o.autonomy > 45 || p.order.freedom === 'free') && chance(0.6)) {
           this.startCounter(p, sec, true);
         }
       }
@@ -453,6 +459,8 @@ export class Sim {
           if (!sec.holder) sec.holder = p.id;
         }
         this.report(p, 'arrived', { sector: ord.sector }, { intel: {} });
+      } else if (ord.task === 'relieve' && !this.sectors[ord.sector]) {
+        p.where = { type: 'res', loc: ord.backLoc || 'center' }; p.sector = null;
       } else if (ord.task === 'relieve') {
         const sec = this.sectors[ord.sector];
         const old = this.holderOf(ord.sector);
@@ -530,11 +538,11 @@ export class Sim {
       if (sec.held !== 'lost') sec.fort = clamp(sec.fort + 0.004 * o.fortSelf, 0, 95);
     }
     // ночная инициатива — вылазки
-    if (o.raids > 0 && this.night > 0.8 && p.where.type === 'sector' && !this.sectors[p.where.s].op && !p.raid && p.men > 15 && p.fatigue < 70) {
+    if (o.raids > 0 && this.staff.deleg.initiative !== 'forbid' && this.night > 0.8 && p.where.type === 'sector' && !this.sectors[p.where.s].op && !p.raid && p.men > 15 && p.fatigue < 70) {
       const k = this.flags['raid_' + o.id] || 0;
       if (this.t > k && chance(0.004 * o.raids)) {
         this.flags['raid_' + o.id] = this.t + 600;
-        if (o.autonomy > 70 && o.trust > 55) this.startRaid(p, true);
+        if ((o.autonomy > 70 && o.trust > 55) || this.staff.deleg.initiative === 'allow') this.startRaid(p, true);
         else this.send({ from: o, unit: p.id, kind: 'raidAsk', expire: 40, text: say(o, 'raidAsk', {}),
           options: [
             { label: 'Разрешаю. Осторожно.', fn: () => { this.startRaid(p, false); this.trust(o, 4, 'капитан доверил вылазку'); this.autonomy(o, 4); return { text: 'Есть!' }; } },
@@ -613,8 +621,10 @@ export class Sim {
     const hours = Math.round((this.t - p.onLineSince) / 60);
     const res = this.reservePlatoons();
     const options = [];
+    const sAsk = p.where.s;
     for (const r of res) options.push({ label: `Меняю сейчас: ${r.name} выходит к вам.`, fn: () => {
-      this.orderMove(r, { task: 'relieve', sector: p.where.s, backLoc: r.where.loc });
+      if (!sAsk || r.where.type !== 'res') return { text: 'Поздно — обстановка изменилась.' };
+      this.orderMove(r, { task: 'relieve', sector: sAsk, backLoc: r.where.loc });
       this.trust(o, 5, 'сменил нас по просьбе'); return { text: 'Спасибо, капитан.' };
     } });
     options.push({ label: 'Смена будет через четыре часа. Слово.', fn: () => {
@@ -858,8 +868,8 @@ export class Sim {
     const plan = this.enemy.plan.filter((x) => !x.started && x.t < this.t + 600 && (x.target === sc.dir || (!x.prepped && chance(0.3))))[0];
     let text;
     if (plan && plan.target === sc.dir) text = `Ходили к ${SECTORS[sc.dir].gen} сектору. Противник готовится: ${strengthWords(plan.str * rnd(0.85, 1.15))}, ${plan.type === 'feint' ? 'шумят, но окопов не роют — похоже на показуху' : plan.type === 'infil' ? 'малыми группами, тихо' : 'подвозят мины, роют исходные'}. Думаю, около ${fmtTime(plan.t + rnd(-30, 30)).hm}.`;
-    else if (plan) text = `Перед ${SECTORS[sc.dir].gen} сектором тихо. Но слышали, как техника шла в сторону ${SECTORS[plan.target]?.gen || 'южного'} сектора.`;
-    else text = `Перед ${SECTORS[sc.dir].gen} сектором тихо. Противник сидит в окопах, накопления нет.`;
+    else if (plan) text = `Перед ${SECTORS[sc.dir].ins} сектором тихо. Но слышали, как техника шла в сторону ${SECTORS[plan.target]?.gen || 'южного'} сектора.`;
+    else text = `Перед ${SECTORS[sc.dir].ins} сектором тихо. Противник сидит в окопах, накопления нет.`;
     if (k) text += ` Потеряли ${k}.`;
     this.send({ from: o, unit: p.id, kind: 'scout', expire: 60, text, intel: {}, intelSector: sc.dir, options: [{ label: 'Понял. Отдыхайте.', fn: () => ({}) }] });
     if (plan && plan.target === sc.dir) this.knowledgePatch(sc.dir, { enemy: strengthWords(plan.str) + ' (разведка)' });
@@ -908,7 +918,15 @@ export class Sim {
   adj(text) { this.say(text, 'Гусев', 7); this.addLog('Гусев', text, 'adj'); }
 
   /** Сообщения, готовые к доставке по каналу. */
-  pending(channel) { return this.inbox.filter((m) => m.channel === channel && this.t >= m.arrive && !m.done); }
+  pending(channel) { return this.inbox.filter((m) => m.channel === channel && this.t >= m.arrive && !m.done && m.route === 'player'); }
+
+  /** Капитан лично осмотрел позицию: карта получает достоверные данные. */
+  observe(s) {
+    const sec = this.sectors[s];
+    if (!sec) return;
+    const op = sec.op && sec.op.phase === 'active' ? sec.op : null;
+    this.knowledgePatch(s, { held: sec.held, our: sec.holder, combat: !!op, line: sec.line, enemy: op ? strengthWords(op.str) + ' (лично)' : sec.held === 'lost' ? 'противник в секторе' : 'тихо (лично)' });
+  }
 
   ringing() { return this.pending('phone').sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0))[0] || null; }
 
@@ -948,10 +966,10 @@ export class Sim {
     for (const s of SECTOR_IDS) {
       const sec = this.sectors[s];
       if (sec.line === 'cut' && sec.held !== 'lost') {
-        if (!sec.repairEta) sec.repairEta = this.t + rnd(35, 70) / (this.eng.task?.type === 'lines' ? 2.5 : 1);
+        if (!sec.repairEta) sec.repairEta = this.t + rnd(35, 70) / (this.eng.task?.type === 'lines' ? 2.5 : 1) * (this.staff.deleg.lines === 'combat' ? (sec.op ? 0.6 : 1.3) : 1);
         if (this.t >= sec.repairEta) {
           sec.line = 'ok'; sec.repairEta = 0;
-          this.say(`Связь с ${SECTORS[s].gen} сектором восстановлена.`, 'Мирон', 4);
+          this.say(`Связь с ${SECTORS[s].ins} сектором восстановлена.`, 'Мирон', 4);
           this.addLog('Мирон', `Восстановлена линия: ${SECTORS[s].name.toLowerCase()} сектор.`);
           this.knowledgePatch(s, { line: 'ok' });
         }

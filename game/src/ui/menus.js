@@ -4,6 +4,7 @@ import { ammoWords, fatigueWords, moraleWords, orderText, cap, pick, n1 } from '
 import { radioMenu } from '../sim/director.js';
 import { drawMap } from '../world/mapdraw.js';
 import { esc } from './ui.js';
+import { DELEG_INFO, shorten } from '../sim/staff.js';
 
 const back = (fn, label = 'Назад') => ({ label, fn, cls: 'back' });
 const hang = { label: 'Отбой', fn: () => undefined, cls: 'back' };
@@ -97,17 +98,17 @@ export class Menus {
     if (k === 'sector' || k === 'lostSector' || k === 'sectorAny') {
       const list = SECTOR_IDS.filter((s) => k === 'sectorAny' ? true : k === 'lostSector' ? sim.sectors[s].held === 'lost' : sim.sectors[s].held !== 'lost')
         .filter((s) => !(ord.task === 'relieve' && !sim.holderOf(s)));
-      if (!list.length) return { text: k === 'lostSector' ? 'Потерянных секторов нет.' : 'Некуда.', options: [back(() => this.callPlatoon(p))] };
+      if (!list.length) return { text: k === 'lostSector' ? 'Потерянных секторов нет.' : 'Некуда.', options: [back(() => this.backTo(p, via))] };
       return { text: 'Куда?', options: [...list.map((s) => {
         const h = sim.holderOf(s);
         const eta = p.where.type === 'res' ? RES_LOCS[p.where.loc].t[s] : null;
         return { label: `${SECTORS[s].name} (${SECTORS[s].loc})${h && ord.task === 'relieve' ? ' — сменить ' + h.call.toLowerCase() : ''}${eta ? ` ~${eta} мин` : ''}`, fn: nextP({ sector: s }) };
-      }), back(() => this.callPlatoon(p))], noType: true };
+      }), back(() => this.backTo(p, via))], noType: true };
     }
     if (k === 'loc') {
       return { text: 'Где держать резерв?', options: [...Object.entries(RES_LOCS).filter(([id]) => !(p.where.type === 'res' && p.where.loc === id)).map(([id, l]) => ({
         label: `${cap(l.name)} — до С ${l.t.N} / В ${l.t.E} / Ю ${l.t.S} / З ${l.t.W} мин`, fn: nextP({ loc: id, locName: l.name }),
-      })), back(() => this.callPlatoon(p))], noType: true };
+      })), back(() => this.backTo(p, via))], noType: true };
     }
     if (k === 'priority') {
       return { text: `${head}. Как держать?`, options: [
@@ -132,12 +133,12 @@ export class Menus {
       const eta = sim.courierOrder(p, ord);
       return { who: 'Мирон', text: `Связной ушёл. Приказ: «${orderText(ord)}». Ожидаемое время доставки — ${fmtTime(eta).hm}.`, options: [hang] };
     }
-    const r = sim.issueOrder(p, ord, 'phone');
+    const r = sim.issueOrder(p, ord, via === 'person' ? 'person' : 'phone');
     if (ord.task === 'report') return undefined; // доклад придёт звонком
     const opts = [];
     if (r.retry) opts.push({ label: 'Повторить приказ', fn: () => this.confirmOrder(p, ord, via) });
     if (r.options) opts.push(...this.wrap(r.options));
-    opts.push({ label: 'Ещё приказ', fn: () => this.callPlatoon(p), cls: 'back' });
+    opts.push({ label: 'Ещё приказ', fn: () => this.backTo(p, via), cls: 'back' });
     opts.push(hang);
     return { text: r.text || 'Есть.', options: opts };
   }
@@ -259,21 +260,6 @@ export class Menus {
     return { hdr: this.hdr('Сейф'), text: `Ключ — у вас на шее. Срок деблокады по последним данным: ${fmtTime(sim.knownRelief || sim.reliefT).full}.`, options: opts, noType: true };
   }
 
-  map() {
-    const sim = this.sim;
-    const c = document.createElement('canvas'); c.width = 640; c.height = 480;
-    drawMap(c, sim, true);
-    const url = c.toDataURL();
-    const rows = SECTOR_IDS.map((s) => {
-      const k = sim.knowledge[s];
-      const p = k.our ? sim.platoons[k.our] : null;
-      return `<tr><td>${SECTORS[s].name}</td><td>${fmtTime(k.t).hm}</td><td>${k.held === 'lost' ? '<span style="color:#8a2018">ПОТЕРЯН</span>' : k.held === 'line2' ? 'вторая линия' : 'первая линия'}${p ? ', ' + p.call.toLowerCase() : ''}</td><td>${esc(k.enemy || '')}</td></tr>`;
-    }).join('');
-    return { hdr: ['Карта обстановки', sim.time.full], noType: true,
-      html: `<img src="${url}" style="width:100%;image-rendering:pixelated;border:1px solid #7a6f58;display:block"><table style="margin-top:8px"><tr><td>Сектор</td><td>Доклад</td><td>Положение</td><td>Противник</td></tr>${rows}</table><p style="font-size:12px;opacity:.7">На карте — только то, что доложено. Время у каждой пометки — время доклада.</p>`,
-      options: [] };
-  }
-
   // ---------- время ----------
   clock() {
     const sim = this.sim;
@@ -294,86 +280,6 @@ export class Menus {
       { label: 'Поспать 4 часа', disabled: c.fatigue < 40, fn: () => { this.g.sleep(4); return undefined; } },
       hang,
     ] };
-  }
-
-  // ---------- выход ----------
-  door() {
-    const sim = this.sim;
-    const opts = [];
-    for (const p of Object.values(sim.platoons)) {
-      if (p.men <= 0 || p.where.type === 'move') continue;
-      const s = p.where.type === 'sector' ? p.where.s : null;
-      const eta = s ? RES_LOCS.hq.t[s] : p.where.loc === 'hq' ? 2 : 12;
-      opts.push({ label: `Пойти в ${p.name.replace('взвод', 'взвод')} — ${sim.officerOf(p)?.short} (~${eta} мин в одну сторону)`, fn: () => { this.g.goOut(eta, () => this.visitPlatoon(p, eta)); return undefined; } });
-    }
-    opts.push({ label: 'В медпункт (~5 мин)', fn: () => { this.g.goOut(5, () => this.visitMed()); return undefined; } });
-    opts.push({ label: 'На склад (~6 мин)', fn: () => { this.g.goOut(6, () => this.visitDepot()); return undefined; } });
-    opts.push({ label: 'Выглянуть в траншею (~3 мин)', fn: () => { this.g.goOut(2, () => this.trench()); return undefined; } });
-    opts.push(back(() => undefined, 'Остаться в штабе'));
-    return { hdr: this.hdr('Выход'), text: 'Пока вас нет — звонки остаются без ответа.', options: opts, noType: true };
-  }
-
-  returnOpt(min) { return { label: 'Возвращаться в штаб', fn: () => { this.g.comeBack(min); return undefined; }, cls: 'back' }; }
-
-  visitPlatoon(p, eta) {
-    const sim = this.sim, o = sim.officerOf(p);
-    sim.stats.visits++;
-    const fresh = sim.t - (p.lastVisit || -9999) > 360;
-    if (fresh) { p.lastVisit = sim.t; p.morale = Math.min(100, p.morale + 6); if (o) sim.trust(o, 5, 'капитан сам пришёл к нам на позиции'); }
-    const sec = p.where.type === 'sector' ? sim.sectors[p.where.s] : null;
-    const scene = [];
-    scene.push(sec ? `Блиндаж ${p.name.replace('взвод', 'взвода')}. ${sec.op ? 'Наверху — стрельба, с потолка сыплется.' : pick(['Тихо. Кто-то спит прямо на ящиках.', 'Коптилка, махорочный дым, сырость.', 'В углу кипит котелок. Пахнет мокрой шинелью.'])}` : `Резерв, ${RES_LOCS[p.where.loc].name}. Люди сидят в щелях, курят в рукав.`);
-    scene.push(p.ammo < 1.5 ? 'Ящики из-под патронов пусты, их пустили на дрова.' : 'Ящики с патронами вдоль стены.');
-    scene.push(p.fatigue > 70 ? 'Бойцы спят сидя, с винтовками в обнимку. Двое не проснулись, когда вы вошли.' : p.fatigue > 45 ? 'Лица серые, глаза красные.' : 'Люди бодры, при вашем появлении встают.');
-    if (p.wounded > 0 && sec) scene.push('На нарах — раненые, ждут, когда отнесут в медпункт.');
-    if (o) scene.push(`\n${o.short}: «${o.trust > 60 ? 'Рад вас видеть, капитан.' : o.trust > 35 ? 'Капитан.' : 'Пришли проверить?'}»`);
-    scene.push(`\n${sim.platoonTruth(p, o)}`);
-    const opts = [
-      { label: 'Поговорить с бойцами (15 мин)', fn: () => { sim.update(15); p.morale = Math.min(100, p.morale + 5); return { text: pick(['Спрашивают про деблокаду. Про письма. Про кухню. Отвечаете, как можете. Кто-то смеётся — впервые за сутки.', 'Молодой боец показывает фотографию матери. Вы киваете. Он долго смотрит вам вслед.']), options: [back(() => this.visitPlatoon(p, eta)), this.returnOpt(eta)] }; } },
-    ];
-    if (o) {
-      for (const t of sim.officerTalkOptions(o).slice(0, 4)) opts.push({ label: t.label, fn: () => { const r = t.fn(); return { text: r.text, options: [back(() => this.visitPlatoon(p, eta)), this.returnOpt(eta)] }; } });
-      if (sec && !o.promise) opts.push({ label: 'Пообещать смену через 4 часа', fn: () => { o.promise = { what: 'relief', until: sim.t + 240 + eta }; sim.trust(o, 2); return { text: 'Он кивает. «Передам людям. Они будут ждать, капитан.»', options: [this.returnOpt(eta)] }; } });
-    }
-    opts.push(this.returnOpt(eta));
-    return { hdr: [p.name, sim.time.full], text: scene.join(' '), options: opts };
-  }
-
-  visitMed() {
-    const sim = this.sim, m = sim.med;
-    const load = m.light + m.severe;
-    const text = `Медпункт. ${load > 26 ? 'Раненые лежат в проходах, на полу, на шинелях. Стоны.' : load > 12 ? 'Все нары заняты.' : 'Полутемно, пахнет карболкой.'} Гриневич в фартуке, рукава закатаны. Тяжёлых — ${m.severe}, лёгких — ${m.light}. ${sim.depot.meds < 2 ? 'Бинты стирают и сушат над печкой.' : ''}`;
-    return { hdr: ['Медпункт', sim.time.full], text, options: [
-      { label: 'Обойти раненых (10 мин)', fn: () => { sim.update(10); for (const p of Object.values(sim.platoons)) p.morale = Math.min(100, p.morale + 1.5); return { text: 'Кто-то хватает вас за рукав: «Капитан, мы удержимся?» Вы отвечаете «да». Слух об этом к вечеру разойдётся по взводам.', options: [this.returnOpt(5)] }; } },
-      { label: 'Приоритет: возвращать в строй', fn: () => { m.priority = 'return'; return { text: 'Гриневич молча кивает.', options: [this.returnOpt(5)] }; } },
-      { label: 'Приоритет: спасать тяжёлых', fn: () => { m.priority = 'severe'; return { text: '«Спасибо, капитан.»', options: [this.returnOpt(5)] }; } },
-      this.returnOpt(5),
-    ] };
-  }
-
-  visitDepot() {
-    const r = this.depot();
-    r.hdr = ['Склад', this.sim.time.full];
-    r.who = 'Старшина Дьяков — лично';
-    r.options = r.options.filter((o) => o !== hang);
-    r.options.push(this.returnOpt(6));
-    return r;
-  }
-
-  trench() {
-    const sim = this.sim;
-    const lines = [];
-    for (const s of SECTOR_IDS) {
-      const sec = sim.sectors[s];
-      const dir = { N: 'На севере', E: 'На востоке', S: 'На юге', W: 'На западе, над болотом' }[s];
-      if (sec.op && sec.op.phase === 'active') lines.push(`${dir} — ${sec.op.str > 120 ? 'сплошной треск пулемётов, разрывы, зарево' : 'частая винтовочная стрельба'}.`);
-      else if (sec.op && sec.op.phase === 'arty') lines.push(`${dir} — земля ходит ходуном: артподготовка.`);
-      else if (sec.held === 'lost') lines.push(`${dir} — чужие ракеты. Там уже не наши.`);
-      else if (sec.shelledUntil > sim.t) lines.push(`${dir} — редкие разрывы.`);
-      else lines.push(`${dir} — тихо.`);
-    }
-    const sky = sim.night > 0.5 ? 'Ночь. Над нейтральной полосой висят осветительные ракеты.' : 'Серое небо, низкий туман.';
-    return { hdr: ['Траншея у штаба', sim.time.full], text: `${sky}\n\n${lines.join('\n')}`, options: [this.returnOpt(2)] };
   }
 
   // ---------- люди ----------
@@ -404,5 +310,174 @@ export class Menus {
       { label: '«Держимся, браток.»', fn: () => undefined },
       { label: 'Дать воды из своей фляги.', fn: () => { this.sim.depot.water = Math.max(0, this.sim.depot.water - 0.01); return { text: 'Он пьёт жадно, потом засыпает.' }; } },
     ] };
+  }
+
+  backTo(p, via) { return via === 'person' ? this.officerField(this.sim.officerOf(p)) : this.callPlatoon(p); }
+
+  // ---------- лично на позиции ----------
+  officerField(o) {
+    const sim = this.sim;
+    if (!o || !o.alive) return { text: 'Никого.', options: [] };
+    const p = sim.platoonOf(o);
+    const s = p.where.type === 'sector' ? p.where.s : null;
+    if (s) sim.observe(s);
+    if (sim.t - (p.lastVisit || -9999) > 360) {
+      p.lastVisit = sim.t; sim.stats.visits++;
+      p.morale = Math.min(100, p.morale + 6);
+      sim.trust(o, 5, 'капитан сам пришёл к нам на позиции');
+    }
+    const greet = o.trust > 60 ? 'Рад вас видеть, капитан.' : o.trust > 35 ? 'Капитан.' : 'Пришли проверить?';
+    const pend = sim.inbox.filter((m) => m.route === 'player' && !m.done && m.unit === p.id && sim.t >= m.arrive);
+    const opts = pend.map((m) => ({ label: `Выслушать доклад: ${shorten(m.text, 50)}`, fn: () => this.msgPage(m, 'Доклад лично') }));
+    opts.push({ label: 'Что у вас происходит?', fn: () => ({ text: this.situation(p, o), options: [back(() => this.officerField(o)), hang] }) });
+    opts.push({ label: 'Приказ…', fn: () => ({ text: 'Слушаю.', options: [...this.orderList(p, 'person'), back(() => this.officerField(o))], noType: true }) });
+    for (const t of sim.officerTalkOptions(o).slice(0, 4)) opts.push({ label: t.label, fn: () => { const r = t.fn(); return { text: r.text, options: [back(() => this.officerField(o)), hang] }; } });
+    if (s && !o.promise) opts.push({ label: 'Пообещать смену через 4 часа', fn: () => { o.promise = { what: 'relief', until: sim.t + 240 }; sim.trust(o, 2); return { text: '«Передам людям. Они будут ждать, капитан.»' }; } });
+    opts.push(hang);
+    return { hdr: [p.name + (s ? ` — ${SECTORS[s].name.toLowerCase()} участок` : ''), sim.time.full], who: o.name, text: greet, options: opts, noType: true };
+  }
+
+  situation(p, o) {
+    const sim = this.sim;
+    const s = p.where.type === 'sector' ? p.where.s : null;
+    const l = [];
+    if (s) {
+      const sec = sim.sectors[s];
+      const op = sec.op;
+      if (op && op.phase === 'active') l.push(`Бой. Лезут ${({ executor: 'по-прежнему', cautious: 'со всех сторон', initiator: 'нагло' })[o.arch] || ''}, по-моему — ${pick(['больше роты', 'около роты', 'не меньше двух взводов'])}.`);
+      else if (op && op.phase === 'arty') l.push('Артподготовка. Сейчас пойдут.');
+      else if (sim.enemy.visibleNear(s)) l.push('Перед нами накапливаются. Ночью слышно, как подтягиваются.');
+      else l.push(pick(['Сейчас тихо. Постреливают для порядка.', 'Тихо. Слишком тихо, если честно.']));
+      l.push(`Держим ${sec.held === 'line1' ? 'первую траншею' : 'вторую линию'}. Укрепления ${sec.fort > 60 ? 'держатся' : sec.fort > 35 ? 'побиты' : 'почти разрушены'}. Связь со штабом ${sec.line === 'cut' ? 'порвана' : 'есть'}.`);
+    }
+    l.push(sim.platoonTruth(p, o));
+    if (p.order.priority === 'hold') l.push('Приказ — держаться любой ценой. Помню.');
+    if (o.promise) l.push(`Вы обещали смену к ${fmtTime(o.promise.until).hm}.`);
+    return l.join(' ');
+  }
+
+  soldier(d) {
+    const sim = this.sim;
+    const p = d.unit ? sim.P(d.unit) : null;
+    let text;
+    const r = d.role;
+    if (r === 'carrier') text = `«Патроны несём, товарищ капитан. ${p ? p.name + ', ' : ''}старшина приказал. Ящик тяжёлый, а траншея узкая.»`;
+    else if (r === 'medic') text = `«Раненого в медпункт. Там уже человек ${sim.med.light + sim.med.severe} лежит, доктор с ног валится.»`;
+    else if (r === 'signal') { const cut = SECTOR_IDS.filter((x) => sim.sectors[x].line === 'cut').map((x) => SECTORS[x].gen); text = cut.length ? `«Обрыв на ${cut[0]} участке. Ищу, где снарядом порвало. Скоро дам связь.»` : '«Линию проверяю.»'; }
+    else if (r === 'eng') text = sim.eng.task ? `«${cap(sim.eng.task.label)}. Лучко сказала — к ночи кончить.»` : '«Брёвна сортируем. Задания пока нет.»';
+    else if (r === 'march') text = p ? `«${p.name}, идём, куда приказано. ${p.where.to?.task === 'relieve' ? 'Сменять ребят.' : 'На усиление.'}»` : '«Идём.»';
+    else if (r === 'depot') text = `«Ящики таскаю. Патронов на складе — ${sim.depot.ammo < 3 ? 'кот наплакал' : 'пока есть'}.»`;
+    else if (p) {
+      const sec = p.where.type === 'sector' ? sim.sectors[p.where.s] : null;
+      if (sec && sec.op && sec.op.phase === 'active') text = pick(['«Лезут, товарищ капитан! Пригнитесь!»', '«Патроны! Кто-нибудь, патроны!»', '«Держимся! Держимся!»']);
+      else if (p.ammo < 1) text = '«Патронов по обойме на брата. Если полезут — в штыки пойдём.»';
+      else if (p.fatigue > 70) text = '«Третьи сутки не спим, товарищ капитан. Глаза сами закрываются.»';
+      else if (sim.depot.food <= 0) text = '«Кухни второй день нет. Сухари кончились.»';
+      else if (p.morale < 35) text = '«Говорят, помощи не будет… Это правда?»';
+      else if (p.where.type === 'res') text = pick(['«Отдыхаем, пока дают. Скажут — пойдём.»', '«Байрамов говорит — нас берегут на самый крайний случай.»']);
+      else text = pick([`«Тихо пока. ${sim.officerOf(p)?.short || 'Командир'} велел глядеть в оба.»`, '«Ночью они там что-то копали. Слышно было.»', '«Письмо бы домой отправить… Когда почта будет?»']);
+    } else text = pick(['«Здравия желаю, товарищ капитан.»', '«Иду на склад, товарищ капитан.»']);
+    const opts = [];
+    if (p && !d.cheered) opts.push({ label: '«Держитесь, ребята. Мы удержим.»', fn: () => { d.cheered = true; if (sim.t - (p.cheerT || -999) > 60) { p.cheerT = sim.t; p.morale = Math.min(100, p.morale + 2); } return { text: '«Есть держаться!» — он выпрямляется.' }; } });
+    opts.push(hang);
+    return { hdr: ['Разговор', sim.time.full], who: d.label, text, options: opts };
+  }
+
+  // ---------- штаб помощников ----------
+  staffNpc(who) {
+    if (who === 'orlov') return this.orlov();
+    if (who === 'olya') return this.olya();
+    if (who === 'gusev') return this.gusev();
+    if (who === 'dyakov') return this.withDeleg(this.depot(), ['ammo']);
+    if (who === 'grin') return this.medpoint();
+    if (who === 'luchko') return this.withDeleg(this.engineers(), ['engAuto']);
+    return null;
+  }
+
+  withDeleg(page, keys) {
+    const opts = page.options.filter((o) => o !== hang);
+    for (const k of keys) opts.push({ label: `Поручение: ${DELEG_INFO[k].title.toLowerCase()} — ${DELEG_INFO[k].opts[this.sim.staff.deleg[k]].toLowerCase()}`, fn: () => this.delegOne(k, () => this.staffNpc(DELEG_INFO[k].who === 'Дьяков' ? 'dyakov' : 'luchko')) });
+    opts.push(hang);
+    return { ...page, options: opts };
+  }
+
+  orlov() {
+    const sim = this.sim, st = sim.staff;
+    const pend = st.pendingDecisions();
+    const fresh = st.digest.filter((d) => d.t > st.lastBrief).slice(-7);
+    st.lastBrief = sim.t;
+    let text = pend.length ? `Капитан, ждут вашего решения: ${pend.length}.` : 'Капитан, срочных вопросов нет.';
+    if (fresh.length) text += `\n\nПока вас не было:\n${fresh.map((d) => `${fmtTime(d.t).hm} ${d.from}: ${shorten(d.text, 90)}`).join('\n')}`;
+    else text += '\nНовых докладов нет.';
+    const opts = pend.slice(0, 6).map((m) => ({ label: `${m.fromName}: ${shorten(m.text, 46)}`, fn: () => this.msgPage(m) }));
+    opts.push({ label: 'Обстановка по участкам', fn: () => ({ text: this.sectorSummary(), options: [back(() => this.orlov()), hang] }) });
+    opts.push({ label: 'Поручения штабу…', fn: () => this.delegPage() });
+    opts.push({ label: `Особый контроль за участком${st.deleg.watch ? ': ' + SECTORS[st.deleg.watch].name.toLowerCase() : ''}`, fn: () => ({ text: 'За каким участком следить особо? Доклады оттуда — сразу вам, где бы вы ни были.', options: [...SECTOR_IDS.map((s) => ({ label: SECTORS[s].name, fn: () => { st.deleg.watch = s; return { text: `Есть. ${SECTORS[s].name} — на особом контроле.` }; } })), { label: 'Снять контроль', fn: () => { st.deleg.watch = null; return { text: 'Есть.' }; } }, back(() => this.orlov())] }) });
+    opts.push(hang);
+    return { hdr: this.hdr('Начальник штаба'), who: 'Старший лейтенант Михаил Орлов', text, options: opts };
+  }
+
+  sectorSummary() {
+    const sim = this.sim;
+    return SECTOR_IDS.map((s) => {
+      const k = sim.knowledge[s]; const p = k.our ? sim.platoons[k.our] : null;
+      return `${SECTORS[s].name} (доклад ${fmtTime(k.t).hm}): ${k.held === 'lost' ? 'ПОТЕРЯН' : k.held === 'line2' ? 'вторая линия' : 'первая линия'}${p ? ', ' + p.call.toLowerCase() : ''}; противник — ${k.enemy}; связь — ${k.line === 'cut' ? 'нет' : 'есть'}.`;
+    }).join('\n') + `\n\nРезерв: ${sim.reservePlatoons().map((p) => `${p.call} (${RES_LOCS[p.where.loc].short})`).join(', ') || 'нет'}.`;
+  }
+
+  delegPage() {
+    const sim = this.sim, D = sim.staff.deleg;
+    const opts = Object.entries(DELEG_INFO).map(([k, v]) => ({ label: `${v.who}: ${v.title.toLowerCase()} — ${v.opts[D[k]].toLowerCase()}`, fn: () => this.delegOne(k, () => this.delegPage()) }));
+    opts.push(back(() => this.orlov()));
+    return { hdr: this.hdr('Поручения'), text: 'Что поручить штабу? Помощники работают сами, но ошибаются: Орлов верит докладам на слово, Дьяков не всё замечает вовремя.', options: opts, noType: true };
+  }
+
+  delegOne(k, ret) {
+    const sim = this.sim, v = DELEG_INFO[k];
+    return { text: `${v.title}:`, options: [...Object.entries(v.opts).map(([val, label]) => ({ label: (sim.staff.deleg[k] === val ? '● ' : '○ ') + label, fn: () => {
+      sim.staff.deleg[k] = val;
+      return { text: `${v.who}: «Есть. ${label}.»`, options: [back(ret, 'Ещё поручение'), hang] };
+    } })), back(ret)], noType: true };
+  }
+
+  fieldPhone() {
+    return { hdr: this.hdr('Полевой телефон'), who: 'Мирон (коммутатор)', text: '«Штаб слушает.»', options: [
+      { label: 'Начальника штаба — доклад', fn: () => this.orlov() },
+      { label: 'Соединить с…', fn: () => this.directory() },
+      hang,
+    ], noType: true };
+  }
+
+  depotStock() {
+    const sim = this.sim, d = sim.depot;
+    sim.ledger = { t: sim.t, ...d };
+    return { hdr: ['Склад', sim.time.full], text: `Вы пересчитываете сами. Ящиков с патронами — ${Math.ceil(d.ammo)}. Мешков с продуктами — ${Math.ceil(d.food * 3)}. Бочки с водой — ${d.water > 1 ? 'полные' : d.water > 0.3 ? 'наполовину' : 'почти пустые'}. Брёвен и досок — ${Math.floor(d.mat)}.`, options: [] };
+  }
+
+  medcab() {
+    const m = this.sim.depot.meds;
+    return { hdr: ['Медпункт', this.sim.time.full], text: m < 1 ? 'Полки пусты. Бинты стирают и сушат над печкой.' : m < 4 ? `Несколько пачек бинтов, пузырьки на донышке. Упаковок — ${Math.round(m)}.` : `Упаковок медикаментов — ${Math.round(m)}.`, options: [] };
+  }
+
+  binoculars() {
+    const sim = this.sim;
+    const n = sim.night > 0.5;
+    const plan = sim.enemy.plan.find((x) => x.prepped && !x.started && x.target === 'N');
+    const op = sim.sectors.N.op;
+    let t = n ? 'Ночь. Видно только, когда висит ракета. ' : 'Серое поле, проволока, воронки, берёзы. ';
+    if (op && op.phase === 'active') t += 'Цепи противника перебежками идут к проволоке. Много.';
+    else if (plan && (!n || Math.random() < 0.4)) t += `В лощине движение: ${plan.signals === 'loud' ? 'ходят открыто, курят, подвозят ящики' : 'кто-то короткими перебежками, без шума'}. Похоже — ${plan.str > 150 ? 'не меньше роты' : 'взвод-два'}.`;
+    else t += 'Движения не видно. Дымок над их окопами — кухня.';
+    sim.observe('N');
+    return { hdr: ['НП «Берёзы»', sim.time.full], text: t, options: [] };
+  }
+
+  pocketMap(player) {
+    const sim = this.sim;
+    const c = document.createElement('canvas'); c.width = 600; c.height = 600;
+    drawMap(c, sim, true, player);
+    return { hdr: ['Планшет', sim.time.full], noType: true,
+      html: `<img src="${c.toDataURL()}" style="width:auto;max-width:100%;max-height:70vh;image-rendering:pixelated;border:1px solid #7a6f58;display:block;margin:0 auto">
+      <p style="font-size:12px;opacity:.7">Траншеи, блиндажи и позиции — как есть на местности. Обстановка — только по докладам и вашим личным наблюдениям, со временем доклада.</p>`, options: [] };
   }
 }

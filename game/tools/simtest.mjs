@@ -12,10 +12,11 @@ function play(seedMode) {
   const sim = new Sim();
   const dir = new Director(sim);
   let answered = 0;
+  if (seedMode === 'deleg') { Object.assign(sim.staff.deleg, { reserve: 'deputy', withdraw: 'commanders', rotation: 'deputy', ammo: 'auto', engAuto: 'on', initiative: 'allow' }); sim.player.zone = 'N'; }
   for (let i = 0; i < 3 * 1440 && !sim.over; i++) {
     sim.update(1); dir.tick();
     if (verbose && sim.hq.pushOp && sim.hq.pushOp.phase === 'active' && sim.t % 5 === 0) console.log('PUSH', fmtTime(sim.t).hm, 'str', sim.hq.pushOp.str | 0, 'ratio', sim.hq.pushOp.ratio?.toFixed(2), 'threat', sim.hq.threat | 0, 'kom', sim.hq.komendant.toFixed(1), Object.values(sim.platoons).map((p) => p.id + ':' + p.men + ':' + (p.where.type === 'res' ? p.where.loc : p.where.type === 'sector' ? p.where.s : 'mv')).join(' '));
-    if (seedMode === 'passive') continue;
+    if (seedMode === 'passive' || seedMode === 'deleg') continue;
     for (const ch of ['phone', 'radio', 'visit', 'courier', 'adj']) {
       for (const m of sim.pending(ch)) {
         if (seedMode === 'random' && Math.random() < 0.3) continue; // часть звонков пропускаем

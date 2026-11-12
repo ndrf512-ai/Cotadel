@@ -58,9 +58,13 @@ const vert = /* glsl */`
     vec4 mv = viewMatrix * world;
     vec4 clip = projectionMatrix * mv;
     if (uWarp > 0.0) clip.x += sin(uTime * 1.7 + world.y * 2.0) * uWarp * 0.02 * clip.w;
+    // Лёгкая привязка вершин к сетке экрана (PS1). Вблизи камеры отключается,
+    // чтобы стены, люди и предметы не «ломались» при подходе.
     vec2 g = uSnap * 0.5;
-    clip.xy = floor(clip.xy / clip.w * g + 0.5) / g * clip.w;
-    vUvw = vec3(uv * clip.w, clip.w);
+    vec2 snapped = floor(clip.xy / clip.w * g + 0.5) / g * clip.w;
+    float k = smoothstep(2.5, 7.0, clip.w);
+    clip.xy = mix(clip.xy, snapped, k);
+    vUvw = vec3(uv, 1.0);
     vFog = smoothstep(uFogNear, uFogFar, -mv.z);
     gl_Position = clip;
   }
@@ -83,8 +87,8 @@ const frag = /* glsl */`
     return 0.0;
   }
   void main() {
-    // Аффинная интерполяция UV (как на PS1), частично смешанная с перспективной.
-    vec2 uvA = vUvw.xy / vUvw.z;
+    // Перспективно-корректные UV: без «плывущих» текстур вблизи.
+    vec2 uvA = vUvw.xy;
     vec4 t = texture2D(map, uvA);
     if (t.a < 0.5) discard;
     vec3 c = t.rgb * vCol;
@@ -134,9 +138,16 @@ export class Lights {
     this.list.push(l);
     return l;
   }
-  sync(time) {
+  /** Берём ближайшие к камере источники (вспышки — в приоритете). */
+  sync(time, cam) {
+    let act = this.list.filter((l) => l.on && l.intensity > 0.001);
+    if (cam && act.length > MAX_LIGHTS) {
+      for (const l of act) l._d = l.pos.distanceToSquared(cam) / (l.range * l.range) - (l.priority ? 100 : 0);
+      act.sort((a, b) => a._d - b._d);
+    }
+    act = act.slice(0, MAX_LIGHTS);
     for (let i = 0; i < MAX_LIGHTS; i++) {
-      const l = this.list[i];
+      const l = act[i];
       if (!l || !l.on || l.intensity <= 0.001) {
         G.uLightCol.value[i].setRGB(0, 0, 0);
         G.uLightPos.value[i].set(0, -999, 0);

@@ -201,7 +201,7 @@ export class Enemy {
     const what = pick(loud
       ? ['шум моторов, лязг', 'движение пехоты в открытую, крики команд', 'подвозят ящики, ходят не таясь']
       : ['какое-то движение в лощине', 'тихо подтягиваются небольшими группами', 'слышен приглушённый шум, костров не жгут']);
-    const text = `${src}: перед ${SECTORS[s].gen} сектором ${what}. Похоже — ${strengthWords(est)}.`;
+    const text = `${src}: перед ${SECTORS[s].ins} сектором ${what}. Похоже — ${strengthWords(est)}.`;
     this.reportIntel(s, text, strengthWords(est), src);
   }
 
@@ -215,7 +215,7 @@ export class Enemy {
   /** Ложные признаки — противник тоже умеет обманывать. */
   fakeSignals() {
     const s = pick(['N', 'E', 'S']);
-    this.reportIntel(s, `НП: перед ${SECTORS[s].gen} сектором ночью слышен шум моторов, много голосов.`, 'до роты', 'НП');
+    this.reportIntel(s, `НП: перед ${SECTORS[s].ins} сектором ночью слышен шум моторов, много голосов.`, 'до роты', 'НП');
   }
 
   shell(target, n, delay = 0) {
