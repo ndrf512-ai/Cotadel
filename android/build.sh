@@ -11,7 +11,7 @@ DX="$TOOLS/dalvik-dx-16.0.1.jar"
 APKSIG="$TOOLS/apksig-2.3.0.jar"
 B="$HERE/build"
 VCODE="${VCODE:-1}"; VNAME="${VNAME:-0.1.0}"
-rm -rf "$B"; mkdir -p "$B/classes" "$B/signer"
+rm -rf "$B"; mkdir -p "$B/classes" "$B/signer" "$ROOT/dist"
 
 javac -nowarn --release 8 -cp "$ANDROID_JAR" \
   -d "$B/classes" $(find "$HERE/src" -name '*.java')
