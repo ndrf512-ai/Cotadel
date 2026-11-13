@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { box, cyl, plane, M } from '../engine/geo.js';
 import { mat } from '../engine/ps1.js';
 import { toTex } from '../engine/textures.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const H = 2.3; // высота потолка
 
@@ -276,6 +277,7 @@ export function buildHQ(scene, tex, lights) {
   }
   sp.door.set(-3.4, 0, 1.8);
   sp.start.set(4.6, 0, 1.4);
+  mergeStatic(root, W);
   return W;
 }
 
@@ -535,4 +537,40 @@ export function waveFlag(W, t, wind = 1) {
     pos.setXYZ(i, x * (1 - 0.04 * u), y - u * u * 0.08 * (1.3 - wind), w);
   }
   pos.needsUpdate = true;
+}
+
+/** Оптимизация: неподвижные предметы штаба склеиваются по материалам — меньше вызовов отрисовки. */
+function mergeStatic(root, W) {
+  const keep = new Set();
+  const mark = (o) => { if (o && o.isObject3D) o.traverse((c) => keep.add(c)); };
+  for (const v of Object.values(W.refs)) {
+    if (Array.isArray(v)) v.forEach(mark);
+    else if (v && v.isObject3D) mark(v);
+    else if (v && v.mesh) mark(v.mesh);
+  }
+  for (const o of W.interact) mark(o);
+  const groups = new Map();
+  for (const c of [...root.children]) {
+    if (!c.isMesh || keep.has(c) || c.children.length || c.userData.interact || !c.visible) continue;
+    const m = c.material;
+    if (Array.isArray(m) || m.transparent) continue;
+    const g = c.geometry;
+    if (Object.keys(g.attributes).sort().join(',') !== 'normal,position,uv') continue;
+    c.updateMatrix();
+    if (!groups.has(m)) groups.set(m, { list: [], objs: [] });
+    const e = groups.get(m);
+    e.list.push((g.index ? g.toNonIndexed() : g.clone()).applyMatrix4(c.matrix));
+    e.objs.push(c);
+  }
+  let saved = 0;
+  for (const [m, { list, objs }] of groups) {
+    if (list.length < 2) continue;
+    for (const x of list) x.clearGroups();
+    const merged = mergeGeometries(list);
+    if (!merged) continue;
+    for (const o of objs) root.remove(o);
+    root.add(new THREE.Mesh(merged, m));
+    saved += objs.length - 1;
+  }
+  W.refs.mergedSaved = saved;
 }

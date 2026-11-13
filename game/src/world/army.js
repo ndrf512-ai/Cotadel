@@ -396,7 +396,7 @@ export class Army {
 
   officerSpot(sim, u, p) {
     const o = sim.officerOf(p), w = p.where;
-    if (o.atMeeting) { const m = this.T.dugouts.cmd?.spots.meet; const i = sim.chain.meeting?.who.indexOf(o.id) ?? 0; const q = m ? m[Math.max(0, i) % m.length] : [14, -2, 0]; return { x: q[0], z: q[1], face: q[2], pose: 'stand', kind: 'meet' }; }
+    if (o.atMeeting) { const m = this.T.dugouts.cmd?.spots.meet; const i = sim.chain.meeting?.who.indexOf(o.id) ?? 0; const q = m ? m[Math.max(0, i) % m.length] : [14, -2, 0]; return { x: q[0], z: q[1], face: q[2], pose: 'stand', kind: 'meet', speed: 2.1 }; }
     if (w.type === 'res') { const c = w.loc === 'center' ? SPOTS.campfire : SPOTS.res[w.loc]; return { x: c[0] + 2.6, z: c[1] + 0.4, face: Math.atan2(-2.6, -0.4), pose: 'stand' }; }
     if (w.type === 'move') { const to = w.to.sector ? this.dugDoor(w.to.sector) : SPOTS.res[w.to.loc] || SPOTS.res.center; return { x: to[0] - 0.8, z: to[1], face: 0, pose: 'stand', speed: 1.6 }; }
     const s = w.s, sp = SECTOR_POS[s], sec = sim.sectors[s];

@@ -327,6 +327,12 @@ function frame() {
     life.update(dt, time, sim, player);
     army.update(dt, time, sim, player);
     battle.update(dt, time, sim, player);
+    // изнутри штаба улицу видно только через дверь: дальних людей снаружи не рисуем
+    if (zone === 'hq' && !zoom) {
+      const out = (q) => q.x < -4.2 || q.x > 10.2 || q.z < -5.2 || q.z > 4.2;
+      for (const pp of life.people) if (pp.root.visible && out(pp.root.position) && Math.hypot(pp.root.position.x - player.x, pp.root.position.z - player.z) > 15) pp.body.visible = false;
+      for (const pp of battle.pool) if (pp.used) pp.body.visible = false;
+    }
     // звуковая обстановка по месту
     const inside = zone === 'hq' || zone.startsWith('dug');
     let nearPpl = 99;

@@ -348,7 +348,7 @@ export class Life {
   /** События цепи командования: приказ связным — бежит связной; совещание — связной в командирский блиндаж. */
   onChainEvent(sim, ev) {
     const D = this.T.dugouts;
-    if (ev.type === 'order' && ev.via === 'связным') {
+    if (ev.type === 'runner') {
       const ref = D[{ N: 'dugN', E: 'dugE', S: 'dugS', W: 'dugW' }[ev.s]];
       if (ref) this.courierJobs.unshift({ to: ref.spots.door, what: `несёт приказ на ${{ N: 'северный', E: 'восточный', S: 'южный', W: 'западный' }[ev.s]} участок`, urgent: true });
     }

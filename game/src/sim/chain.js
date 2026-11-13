@@ -59,6 +59,7 @@ export class Chain {
     const { d, via } = this.relayDelay(s);
     this.queue = this.queue.filter((q) => q.s !== s);
     this.queue.push({ s, task, eta: sim.t + d, tries: 0, via });
+    if (via === 'связным') this.events.push({ type: 'runner', s, t: sim.t });
     sim.stats.ordersGiven++;
     const o = sim.officerOf(holder);
     return { ok: true, text: `Орлов: «Есть. ${via === 'лично' ? 'Командир рядом с вами — приказ получен лично' : via === 'связным' ? `Телефон на ${SECTORS[s].name.toLowerCase()} участок молчит — посылаю связного` : `Звоню на ${SECTORS[s].name.toLowerCase()} участок`}: «${TASKS[task].label}».»` };
