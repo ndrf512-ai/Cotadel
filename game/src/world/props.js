@@ -170,7 +170,7 @@ export function decorate(B, T, lights, tex, mats) {
   // ---------- тыл: бочки с водой, тележка, бельё ----------
   barrel(-3, 6.5); barrel(-2.4, 6.9, 'barrel'); solid(-2.7, 6.7, 0.75);
   {
-    const [x, z] = [4, -12.5];
+    const [x, z] = [11.8, -14.2];
     B.box('planks', 1.2, 0.08, 2.0, x, G0 + 0.55, z, 0.2);
     B.add('log', new THREE.CylinderGeometry(0.45, 0.45, 0.08, 8), x - 0.7, G0 + 0.45, z + 0.3, 0.2, 0, Math.PI / 2);
     B.add('log', new THREE.CylinderGeometry(0.45, 0.45, 0.08, 8), x + 0.6, G0 + 0.45, z + 0.55, 0.2, 0, Math.PI / 2);

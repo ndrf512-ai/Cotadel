@@ -60,6 +60,24 @@
   .sheet .opts.panel button.small { flex:0 1 auto; font-size:13px; padding:5px 9px; }
   .sheet .flash { background:rgba(60,40,10,.08); border-left:3px solid #7a6f58; padding:4px 8px; margin:-4px 0 6px; font-size:14px; }
   #pend { position:fixed; left:12px; top:10px; font-size:14px; color:#e9c070; text-shadow:1px 1px 0 #000; pointer-events:none; letter-spacing:1px; }
+  .sit { font-size:13px; line-height:1.35; margin:2px 0 4px; overflow:hidden; }
+  .sit-top { display:flex; gap:12px; align-items:flex-start; }
+  .sit-side { flex:1 1 auto; min-width:0; }
+  .sit-map { flex:0 0 auto; width:150px; height:150px; image-rendering:pixelated; border:1px solid #7a6f58; }
+  .sit-thr div { margin:1px 0; } .sit-thr .hot { color:var(--red); font-weight:bold; } .sit-thr .warn { color:#7a4a10; }
+  .sit-tab { border-collapse:collapse; margin:6px 0; width:auto; }
+  .sit-tab td { padding:3px 8px 3px 0; vertical-align:top; border-top:1px solid rgba(90,80,60,.25); }
+  .sit-tab small { opacity:.75; font-size:11px; }
+  .sit-tab tr.sit-fight td:first-child { border-left:3px solid var(--red); padding-left:5px; }
+  .sit-tab tr.sit-warn td:first-child { border-left:3px solid #b07020; padding-left:5px; }
+  .sit-tab tr.sit-lost td { opacity:.6; } .sit-tab tr.sit-lost td:first-child { border-left:3px solid #222; padding-left:5px; }
+  .sit-note { font-size:12px; margin:3px 0; } .sit-log { font-size:11px; opacity:.7; margin-top:4px; }
+  .sit-tab { width:100%; }
+  @media (max-width:560px) { .sit-map { width:110px; height:110px; } .sit-tab td { padding-right:4px; font-size:12px; } .sit-log { display:none; } }
+  #title .row2 { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  #title button.link { font-size:12px; letter-spacing:1px; padding:6px 12px; border-width:1px; margin-top:12px; }
+  #news { display:none; max-width:620px; max-height:40vh; overflow:auto; text-align:left; color:#a89e86; background:#0d0c0a; border:1px solid #3a352a; padding:6px 12px; margin-top:10px; }
+  #verline { color:#6a634f; font-size:11px; letter-spacing:.15em; margin-top:-16px; margin-bottom:18px; }
   #replybtn { position:absolute; right:205px; top:10px; height:30px; padding:0 10px; background:rgba(90,40,10,.45); border:1px solid #a0703a; color:#f0d8a0; font:inherit; font-size:12px; display:none; }
   #title { position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#050505;
     text-align:center; padding:20px; box-sizing:border-box; }
@@ -77,7 +95,7 @@
     background:rgba(40,30,10,.35); color:#e6d6a8; font:inherit; font-size:12px; letter-spacing:1px; }
   #actbtn.hot { background:rgba(120,80,20,.55); }
   #mapbtn { position:absolute; right:60px; top:10px; height:30px; padding:0 10px; background:rgba(0,0,0,.3); border:1px solid #5f584a; color:#bfb59a; font:inherit; font-size:12px; }
-  #staffbtn { position:absolute; right:140px; top:10px; height:30px; padding:0 10px; background:rgba(0,0,0,.3); border:1px solid #5f584a; color:#bfb59a; font:inherit; font-size:12px; }
+  #staffbtn { position:absolute; right:140px; font-weight:bold; top:10px; height:30px; padding:0 10px; background:rgba(0,0,0,.3); border:1px solid #5f584a; color:#bfb59a; font:inherit; font-size:12px; }
   #menubtn { position:absolute; right:10px; top:10px; width:40px; height:30px; background:rgba(0,0,0,.3); border:1px solid #5f584a; color:#bfb59a; font:inherit; }
   #pause { position:fixed; inset:0; z-index:8; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.6); }
   #pause.on { display:flex; }
@@ -91,16 +109,19 @@
 <div id="prompt"></div>
 <div id="subs"></div>
 <div id="pend"></div>
-<div id="touch"><div id="stick"><div id="knob"></div></div><button id="actbtn">ДЕЙСТВ.</button><button id="menubtn">II</button><button id="mapbtn">КАРТА</button><button id="staffbtn">ЛЮДИ</button><button id="replybtn">ОТВЕТ</button></div>
+<div id="touch"><div id="stick"><div id="knob"></div></div><button id="actbtn">ДЕЙСТВ.</button><button id="menubtn">II</button><button id="mapbtn">КАРТА</button><button id="staffbtn">КОМАНДОВАНИЕ</button></div>
 <div id="paper"><div class="sheet" id="sheet"></div></div>
 <div id="pause"><div class="sheet" id="pausesheet"></div></div>
 <div id="fade"></div>
 <div id="title">
   <h1>ЦИТАДЕЛЬ</h1>
   <div class="sub">осаждённый гарнизон · командный пункт</div>
-  <p>Вы — капитан. Кольцо окружения замкнулось сегодня утром. Четыре взвода, инженеры, медпункт и сорок восемь часов до обещанной деблокады.<br><br>Это ваша оборона: траншеи, блиндажи, люди. Обходите позиции, говорите с командирами, доверяйте штабу — и решайте.</p>
-  <button id="startbtn">Принять командование</button>
-  <div class="ctl">ПК: WASD — шаг · Shift — бегом · мышь — взгляд · ЛКМ / E — действие · M — планшет · P — личный состав · T — ответить на запрос · Esc — меню<br>Телефон: левый стик — шаг (до упора — бегом) · правая половина — взгляд · кнопки — действие и карта</div>
+  <p>Вы — капитан. Кольцо окружения замкнулось сегодня утром. Четыре взвода, инженеры, медпункт и сорок восемь часов до обещанной деблокады.<br><br>Это ваша оборона: траншеи, блиндажи, люди. Вы командуете обороной: ставите задачи участкам, а приказы идут по цепочке — через начальника штаба к командирам участков, сержантам и бойцам.</p>
+  <div id="verline">CITADEL 1.3</div>
+  <div class="row2"><button id="contbtn" style="display:none">Продолжить</button><button id="startbtn">Принять командование</button></div>
+  <button id="newsbtn" class="link">Что нового в 1.3 «Цепь командования»</button>
+  <div id="news"></div>
+  <div class="ctl">ПК: WASD — шаг · Shift — бегом · мышь — взгляд · ЛКМ / E — действие · Tab / P — командование · M — планшет · Esc — меню<br>Телефон: левый стик — шаг (до упора — бегом) · правая половина — взгляд · кнопки — действие, карта, командование</div>
 </div>
 <script src="game.js"></script>
 </body>

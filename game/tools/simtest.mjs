@@ -10,12 +10,35 @@ globalThis.performance ??= { now: () => Date.now() };
 
 function play(seedMode) {
   const sim = new Sim();
+  const EXP = process.env.EXP || '';
+  if (EXP.includes('nomeet')) sim.chain.nextMeeting = Infinity;
+  if (EXP.includes('noadapt')) sim.enemy.adaptTick = () => {};
+  if (EXP.includes('norecon')) sim.enemy.reconTick = () => {};
+  if (EXP.includes('nocool')) sim.enemy.cooldown = new Proxy({}, { get: () => 0, set: () => true });
   const dir = new Director(sim);
   let answered = 0;
   if (seedMode === 'deleg') { Object.assign(sim.staff.deleg, { reserve: 'deputy', withdraw: 'commanders', rotation: 'deputy', ammo: 'auto', engAuto: 'on', initiative: 'allow' }); sim.player.zone = 'N'; }
   for (let i = 0; i < 3 * 1440 && !sim.over; i++) {
     sim.update(1); dir.tick();
     if (verbose && sim.hq.pushOp && sim.hq.pushOp.phase === 'active' && sim.t % 5 === 0) console.log('PUSH', fmtTime(sim.t).hm, 'str', sim.hq.pushOp.str | 0, 'ratio', sim.hq.pushOp.ratio?.toFixed(2), 'threat', sim.hq.threat | 0, 'kom', sim.hq.komendant.toFixed(1), Object.values(sim.platoons).map((p) => p.id + ':' + p.men + ':' + (p.where.type === 'res' ? p.where.loc : p.where.type === 'sector' ? p.where.s : 'mv')).join(' '));
+    if (seedMode === 'command' && i % 30 === 0) {
+      const C = sim.chain;
+      for (const s of ['N', 'E', 'S', 'W']) {
+        const k = sim.knowledge[s];
+        if (!EXP.includes('noreinf') && k.combat && k.held === 'line2' && !sim.inSector(s).some((p) => p.where.role === 'support')) C.order(s, 'reinforce');
+        else if (!EXP.includes('noprep') && /накаплив|разведк/.test(k.enemy || '') && C.task[s] !== 'prepare') C.order(s, 'prepare');
+        const h = sim.holderOf(s);
+        if (h && h.known && h.known.ammo < 1.5 && !(sim.deliveries || []).some((d) => d.p === h.id)) C.order(s, 'supply');
+        if (k.held === 'lost') C.order(s, 'retake');
+      }
+      if (!EXP.includes('noredist') && i % 180 === 0) C.redistribute();
+      if (sim.hq.pushOp && !C.hqHold) C.holdHQ();
+      if (!sim.hq.pushOp && C.hqHold) C.holdHQ();
+    }
+    if (seedMode === 'command') {
+      for (const ch of ['phone', 'radio', 'visit', 'courier', 'adj']) for (const m of sim.pending(ch)) { sim.receive(m); const o = (m.options || [])[0]; if (o && !(o.disabled && (typeof o.disabled === 'function' ? o.disabled() : o.disabled))) o.fn(); sim.close(m); }
+      continue;
+    }
     if (seedMode === 'passive' || seedMode === 'deleg') continue;
     for (const ch of ['phone', 'radio', 'visit', 'courier', 'adj']) {
       for (const m of sim.pending(ch)) {

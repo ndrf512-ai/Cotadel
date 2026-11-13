@@ -126,6 +126,7 @@ export const DUGOUTS = [
   { id: 'dugW', unitSector: 'W', theme: 'scout', rect: [-35, -31, -7, -2], door: 's', depth: 1.0, name: 'Землянка заставы «Запад»' },
   { id: 'dugR', role: 'reserve', theme: 'barracks', rect: [-15, -10, 6, 10], door: 'e', ground: true, name: 'Укрытие резерва' },
   { id: 'med', role: 'med', theme: 'med', rect: [10, 15, 6, 11], door: 'w', ground: true, name: 'Медпункт' },
+  { id: 'cmd', role: 'command', theme: 'command', rect: [4, 9, -15, -10.5], door: 's', ground: true, name: 'Командирский блиндаж' },
 ];
 for (const d of DUGOUTS) {
   const cx = (d.rect[0] + d.rect[1]) / 2, cz = (d.rect[2] + d.rect[3]) / 2;
@@ -238,6 +239,7 @@ export const SIGNS = [
   { at: [8.8, 5.6], text: ['МЕДПУНКТ', '+'], face: 45 },
   { at: [-9.5, -4], text: ['СКЛАД', ''], face: 300 },
   { at: [-8.5, 5], text: ['РЕЗЕРВ', ''], face: 250 },
+  { at: [3.2, -9.6], text: ['КОМАНДИРСКИЙ', 'БЛИНДАЖ'], face: 180 },
   { at: polar(R_SECOND + 2.5, 8), text: ['ВТОРАЯ', 'ЛИНИЯ'], face: 0 },
   { at: polar(R_SECOND + 2.5, 98), text: ['ВТОРАЯ', 'ЛИНИЯ'], face: 90 },
   { at: polar(R_SECOND + 2.5, 172), text: ['ВТОРАЯ', 'ЛИНИЯ'], face: 180 },
@@ -273,7 +275,8 @@ export function buildNav() {
   R(-7, 6, 'mid1'); R(7, -7, 'mid2'); R(5, 9, 'mid3'); R(-8, -7.5, 'mid4'); R(...SPOTS.kitchen, 'kitchen'); R(...SPOTS.generator, 'gen');
   for (const d of DUGOUTS) {
     const [cx, cz] = d.center;
-    const di = add(cx, cz, 'in:' + d.id);
+    // в командирском блиндаже посередине стол — входная точка у двери
+    const di = d.role === 'command' ? add(cx, d.door === 'n' ? d.rect[2] + 0.9 : d.rect[3] - 0.9, 'in:' + d.id) : add(cx, cz, 'in:' + d.id);
     const off = { w: [d.rect[0] - 1.6, cz], e: [d.rect[1] + 1.6, cz], n: [cx, d.rect[2] - 1.6], s: [cx, d.rect[3] + 1.6] }[d.door];
     const dn = d.ground ? R(off[0], off[1], 'door:' + d.id) : add(off[0], off[1], 'door:' + d.id);
     link(di, dn);
@@ -286,7 +289,10 @@ export function buildNav() {
   }
   // головы ходов сообщения соединены с тылом
   for (const id of ['cN', 'cE', 'cS', 'cW']) rear.push(trIdx[TRENCHES.findIndex((t) => t.id === id)][0]);
-  for (const a of rear) for (const b of rear) if (a < b && Math.hypot(nodes[a].x - nodes[b].x, nodes[a].z - nodes[b].z) < 16) link(a, b);
+  // связи по поверхности не должны проходить сквозь штаб и наземные постройки
+  const blocks = [HQ_RECT, ...DUGOUTS.filter((d) => d.ground).map((d) => d.rect)];
+  const crosses = (a, b) => blocks.some((r) => segHitsRect(nodes[a].x, nodes[a].z, nodes[b].x, nodes[b].z, r, 0));
+  for (const a of rear) for (const b of rear) if (a < b && Math.hypot(nodes[a].x - nodes[b].x, nodes[a].z - nodes[b].z) < 16 && !crosses(a, b)) link(a, b);
   // точки резерва за пределами плоского тыла — к ближайшим узлам
   for (const k of ['nearN', 'nearE', 'nearS']) {
     const i = nodes.findIndex((n) => n.tag === 'res:' + k);
@@ -294,6 +300,21 @@ export function buildNav() {
     for (const [j] of c) link(i, j);
   }
   return { nodes };
+}
+
+/** Пересекает ли отрезок прямоугольник [x0,x1,z0,z1] (с отступом). Концы внутри не считаются. */
+function segHitsRect(ax, az, bx, bz, [x0, x1, z0, z1], pad) {
+  x0 -= pad; x1 += pad; z0 -= pad; z1 += pad;
+  const inR = (x, z) => x > x0 && x < x1 && z > z0 && z < z1;
+  if (inR(ax, az) || inR(bx, bz)) return false;
+  let t0 = 0, t1 = 1;
+  const dx = bx - ax, dz = bz - az;
+  for (const [p, q] of [[-dx, ax - x0], [dx, x1 - ax], [-dz, az - z0], [dz, z1 - az]]) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const r = q / p;
+    if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+  }
+  return t0 < t1;
 }
 
 export function nearestNode(nav, x, z, filter) {

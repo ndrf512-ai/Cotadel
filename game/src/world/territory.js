@@ -32,6 +32,7 @@ class Batch {
 
 export function buildTerritory(scene, tex, lights, W) {
   const root = new THREE.Group(); scene.add(root);
+  if (W && W.refs.wallMapTex) tex = { ...tex, map: W.refs.wallMapTex };
   const mats = {
     planks: M('t_planks', { map: tex.planks, outdoor: true }),
     planksV: M('t_planksV', { map: tex.planksV, outdoor: true }),
@@ -404,7 +405,7 @@ function buildDugout(root, B, mats, d, T, lights, tex) {
   const doorAxis = d.door === 'n' || d.door === 's' ? 'z' : 'x';
   const far = { n: [cx, z1 - 0.5], s: [cx, z0 + 0.5], w: [x1 - 0.5, cz], e: [x0 + 0.5, cz] }[d.door];
   const along = doorAxis === 'z' ? [1, 0] : [0, 1];
-  const nb = d.role === 'med' ? 5 : 4;
+  const nb = d.role === 'med' ? 5 : d.role === 'command' ? 0 : 4;
   for (let i = 0; i < nb; i++) {
     const t = (i - (nb - 1) / 2) * 1.0;
     const bx = far[0] + along[0] * t, bz = far[1] + along[1] * t;
@@ -414,7 +415,7 @@ function buildDugout(root, B, mats, d, T, lights, tex) {
     ref.bunks.push([bx, fl + 0.5, bz, rot]);
   }
   const bunkSolid = doorAxis === 'z' ? [x0, x1, far[1] - 0.55, far[1] + 0.55] : [far[0] - 0.55, far[0] + 0.55, z0, z1];
-  T.solids.push(bunkSolid.map((v, i) => i % 2 ? v : v)); // нары
+  if (nb) T.solids.push(bunkSolid); // нары
   // стол и телефон
   const side = { n: [x0 + 0.55, cz + 0.4], s: [x1 - 0.55, cz - 0.4], w: [cx, z0 + 0.55], e: [cx, z1 - 0.55] }[d.door];
   B.box('iWood', 0.9, 0.06, 0.6, side[0], fl + 0.75, side[1]);
@@ -427,7 +428,7 @@ function buildDugout(root, B, mats, d, T, lights, tex) {
   }
   // ящики с патронами (видимое количество = реальный запас)
   const cr = { n: [x1 - 0.5, z0 + 0.5], s: [x0 + 0.5, z1 - 0.5], w: [x0 + 0.5, z0 + 0.5], e: [x1 - 0.5, z1 - 0.5] }[d.door];
-  if (d.role !== 'med') for (let i = 0; i < 6; i++) {
+  if (d.role !== 'med' && d.role !== 'command') for (let i = 0; i < 6; i++) {
     const c = new THREE.Mesh(boxGeo(0.6, 0.3, 0.4), mats.iCrate);
     c.position.set(cr[0] + (i % 2 ? 0 : 0) , fl + 0.15 + Math.floor(i / 2) * 0.31, cr[1] + (i % 2) * (d.door === 'n' || d.door === 'w' ? 0.45 : -0.45) * (doorAxis === 'z' ? 0 : 1));
     if (doorAxis === 'z') c.position.x += (i % 2) * (d.door === 'n' ? -0.65 : 0.65);
@@ -447,6 +448,15 @@ function buildDugout(root, B, mats, d, T, lights, tex) {
   ref.spots.officer = [side[0] + (doorAxis === 'z' ? 0.6 : 0), fl, side[1] + (doorAxis === 'z' ? 0 : 0.6)];
   ref.spots.center = [cx, fl, cz];
   ref.spots.door = { w: [x0 - 0.9, cz], e: [x1 + 0.9, cz], n: [cx, z0 - 0.9], s: [cx, z1 + 0.9] }[d.door];
+  if (d.role === 'command') {
+    // места вокруг стола совещаний: [x, z, лицом_к]; проход вокруг стола — со стороны скамьи
+    const away = d.door === 'n' ? 1 : -1, tz = cz + 0.2 * away;
+    const doorFace = away > 0 ? 0 : Math.PI, farFace = away > 0 ? Math.PI : 0;
+    const benchSide = side[0] < cx ? 1 : -1;
+    ref.spots.meet = [[cx - 0.7, tz - 0.95 * away, doorFace], [cx + 0.7, tz - 0.95 * away, doorFace], [cx - 0.7, tz + 0.95 * away, farFace], [cx + 0.7, tz + 0.95 * away, farFace], [cx + 1.5 * benchSide, tz, benchSide > 0 ? -Math.PI / 2 : Math.PI / 2], [cx, tz - 1.05 * away, doorFace]];
+    const wx = cx + 1.75 * benchSide;
+    ref.spots.walk = { near: [wx, tz - 1.2 * away], far: [wx, tz + 1.0 * away], tz, away };
+  }
   // табличка у входа
   return ref;
 }
@@ -509,6 +519,30 @@ function themeProps(root, B, d, fl, H, lights, tex, T, doorAxis) {
       for (let i = 0; i < 5; i++) add(new THREE.BoxGeometry(0.03, 0.3, 0.12), mk('t_cloth', { color: 0x9a9070 }), -0.8 + i * 0.4, 1.65);
       for (let i = 0; i < 4; i++) add(new THREE.CylinderGeometry(0.07, 0.06, 0.1, 6), mk('t_tin', { color: 0x5a5c50 }), 0.5 + i * 0.13, 0.05);
       solidAt(0, 0.35);
+      break;
+    }
+    case 'command': { // командирский блиндаж: стол совещаний с картой, скамья, карта на стене
+      const away = d.door === 'n' ? 1 : -1;            // от двери вглубь
+      const tz = cz + 0.2 * away, farZ = away > 0 ? z1 : z0;
+      const tw = 2.2, td = 1.1, ty = 0.78;
+      B.box('iWood', tw, 0.07, td, cx, fl + ty, tz);
+      for (const [lx, lz] of [[-1, -0.45], [1, -0.45], [-1, 0.45], [1, 0.45]]) B.box('iLog', 0.08, ty, 0.08, cx + lx, fl + ty / 2, tz + lz);
+      const map = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.01, 0.9), mk('t_cmdmap', { map: tex.map || tex.doc }));
+      map.position.set(cx, fl + ty + 0.045, tz); root.add(map);
+      tag(map, { id: 'meeting', label: 'Стол совещаний — карта обороны' }); T.interact.push(map);
+      for (let i = 0; i < 5; i++) { const f = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.12, 4), mk('t_flagpin' + (i % 2), { color: i % 2 ? 0x8a2a20 : 0x2a3a6a })); f.position.set(cx - 0.7 + i * 0.35, fl + ty + 0.11, tz + (i % 2 ? 0.2 : -0.15)); root.add(f); }
+      T.solids.push([cx - tw / 2 - 0.05, cx + tw / 2 + 0.05, tz - td / 2 - 0.05, tz + td / 2 + 0.05]);
+      // скамья — у стены напротив столика с телефоном
+      const sideX = { n: x0 + 0.55, s: x1 - 0.55 }[d.door] ?? cx;
+      const benchX = sideX < cx ? x1 - 0.3 : x0 + 0.3;
+      B.box('iWood', 0.32, 0.06, 2.4, benchX, fl + 0.45, cz);
+      for (const dz of [-1.0, 1.0]) B.box('iLog', 0.08, 0.45, 0.08, benchX, fl + 0.22, cz + dz);
+      T.solids.push([benchX - 0.2, benchX + 0.2, cz - 1.25, cz + 1.25]);
+      // карта на дальней стене и доска донесений
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.0), mk('t_wallmap', { map: tex.map || tex.doc }));
+      wall.position.set(cx + 0.6, fl + 1.45, farZ - away * 0.09); wall.rotation.y = away > 0 ? Math.PI : 0; root.add(wall);
+      for (let i = 0; i < 4; i++) { const pp = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.26), paper); pp.position.set(x0 + 0.6 + i * 0.27, fl + 1.5 + (i % 2) * 0.1, farZ - away * 0.09); pp.rotation.y = away > 0 ? Math.PI : 0; root.add(pp); }
+      const l2 = lights.add(new THREE.Vector3(cx, fl + 1.75, tz), 0xffb060, 4.5, 1.1); l2.flicker = 0.1;
       break;
     }
     case 'med': // медпункт: ширма, бутыли, вёдра

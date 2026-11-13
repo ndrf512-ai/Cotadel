@@ -1,7 +1,7 @@
 // Видимый бой. Всё, что видно, выводится из симуляции:
 // численность врага = op.str, продвижение = op.pressure, прорыв = sec.held, отход = конец операции.
 import * as THREE from 'three';
-import { makePerson, setPose, animate, resetPose } from './people.js';
+import { makePerson, setPose, animate, resetPose, act } from './people.js';
 import { SECTOR_POS, baseGround, floorAt, polar, R_FRONT, R_WIRE, R_SECOND } from './layout.js';
 import { mat } from '../engine/ps1.js';
 
@@ -63,7 +63,7 @@ export class Battle {
       this.assault(s, sim, dt, t, cam);
     }
     this.push(sim, dt, t, cam);
-    this.ourCasualties(sim);
+    this.recon(sim, dt, cam);
     // убитые лежат, потом исчезают
     for (const d of [...this.dead]) { d.deadT -= dt; if (d.deadT <= 0) { this.free(d); this.dead.splice(this.dead.indexOf(d), 1); } }
     // анимация видимых
@@ -154,34 +154,31 @@ export class Battle {
       }
       p.root.rotation.y = Math.atan2(-p.root.position.x, -p.root.position.z);
     }
-    // наши стреляют в ответ
-    if (op.phase === 'active') {
-      const enemies = alive;
-      for (const m of our) if (enemies.length && Math.random() < dt * 0.7) {
-        const e = enemies[(Math.random() * enemies.length) | 0];
-        this.tracer(m.x, m.y + 1.4, m.z, e.root.position.x, e.root.position.y + 0.5, e.root.position.z);
-        this.puff(e.root.position.x + rnd(-1.5, 1.5), e.root.position.z + rnd(-1.5, 1.5));
-        this.sound(m.x, m.z, cam, false);
-        if (m.p) m.p.fire = 1;
-      }
-      // пулемёты — очередями
-      for (const g of this.life.T.dynamic.mg[s] || []) {
-        if (!g.visible || !enemies.length || Math.random() > dt * 0.6) continue;
-        const e = enemies[(Math.random() * enemies.length) | 0];
-        for (let i = 0; i < 4; i++) this.tracer(g.position.x, g.position.y + 0.2, g.position.z, e.root.position.x + rnd(-2, 2), e.root.position.y + 0.4, e.root.position.z + rnd(-2, 2), i * 0.07);
-        this.sound(g.position.x, g.position.z, cam, true);
-      }
-    }
   }
 
   ourTargets(s) {
-    const out = [];
-    for (const u of Object.values(this.life.units)) for (const m of u.men) {
-      if (!m.root.visible || !m.sector || m.sector !== s) continue;
-      out.push({ x: m.root.position.x, y: m.root.position.y, z: m.root.position.z, p: m });
-    }
+    const out = this.army ? this.army.targets(s) : [];
     if (!out.length) for (const [x, z] of SECTOR_POS[s].line1) out.push({ x, y: floorAt(x, z), z });
     return out;
+  }
+
+  /** Живые фигуры противника у сектора — по ним стреляют наши бойцы. */
+  enemiesIn(s) {
+    const out = [];
+    const sq = this.squads[s];
+    if (sq && sq.op.phase === 'active') for (const p of sq.men) if (!p.dead && p.used) out.push(p);
+    const r = this.reconSq;
+    if (r && r.s === s && r.spotted) for (const p of r.men) if (!p.dead && p.used && p.state !== 'retreat') out.push(p);
+    return out;
+  }
+
+  /** Выстрел нашего бойца по конкретной фигуре противника. */
+  ourShot(x, y, z, e, auto, cam) {
+    const ex = e.root.position.x, ey = e.root.position.y + (e.pose === 'prone' ? 0.3 : 0.9), ez = e.root.position.z;
+    const n = auto ? 3 : 1;
+    for (let i = 0; i < n; i++) this.tracer(x, y, z, ex + rnd(-1.2, 1.2), ey + rnd(-0.3, 0.5), ez + rnd(-1.2, 1.2), i * 0.08);
+    this.puff(ex + rnd(-1.5, 1.5), ez + rnd(-1.5, 1.5));
+    this.sound(x, z, cam, auto);
   }
 
   shoot(p, targets, cam, enemy) {
@@ -190,6 +187,7 @@ export class Battle {
     this.life.muzzle(x, y, z);
     this.tracer(x, y, z, q.x + rnd(-1, 1), q.y + 1.2 + rnd(-0.4, 0.6), q.z + rnd(-1, 1));
     this.puff(q.x + rnd(-1.6, 1.6), q.z + rnd(-1.6, 1.6));
+    if (q.a && Math.random() < 0.35) act(q.a.p, 'flinch', 0.6);
     p.fire = 1;
     this.sound(x, z, cam, false);
   }
@@ -223,6 +221,40 @@ export class Battle {
     }
   }
 
+  /** Ночная разведка противника: ползут к проволоке; замечены — перестрелка и отход. */
+  recon(sim, dt, cam) {
+    const r = sim.enemy.recon;
+    let g = this.reconSq;
+    if (!r) { if (g) { this.retreat(g, false); this.reconSq = null; } return; }
+    if (!g || g.r !== r) {
+      if (g) this.retreat(g, false);
+      g = this.reconSq = { r, s: r.s, men: [], spotted: false };
+      for (let i = 0; i < 4; i++) {
+        const p = this.take(); if (!p) break;
+        this.place(p, rnd(R_FRONT + 24, R_FRONT + 28), ANG[r.s] + rnd(-12, 12));
+        setPose(p, 'prone'); p.state = 'crawl'; p.sq = g; g.men.push(p);
+      }
+    }
+    if (r.spotted && !g.spotted) {
+      g.spotted = true;
+      for (const p of g.men) { p.state = 'fire'; p.stateT = rnd(2, 5); setPose(p, 'prone'); }
+    }
+    for (const p of g.men) {
+      if (p.dead) continue;
+      if (p.state === 'crawl') {
+        if (p.r > R_WIRE + 3) { p.r -= dt * 0.35; const [x, z] = polar(p.r, p.a); p.root.position.set(x, baseGround(x, z), z); }
+        p.root.rotation.y = Math.atan2(-p.root.position.x, -p.root.position.z);
+      } else if (p.state === 'fire') {
+        p.stateT -= dt;
+        if (Math.random() < dt * 0.5) this.shoot(p, this.ourTargets(g.s), cam, true);
+        if (p.stateT <= 0) { if (Math.random() < 0.3 && g.men.filter((x) => !x.dead).length > 2) this.kill(p); else { p.state = 'back'; setPose(p, 'stand'); p.walking = true; p.running = true; } }
+      } else if (p.state === 'back') {
+        p.r += dt * 3.2; const [x, z] = polar(p.r, p.a); p.root.position.set(x, baseGround(x, z), z); p.root.rotation.y = Math.atan2(x, z);
+        if (p.r > R_FRONT + 40) { this.free(p); p.dead = true; }
+      }
+    }
+  }
+
   /** Штурм КП из захваченного сектора: противник идёт к штабу. */
   push(sim, dt, t, cam) {
     const op = sim.hq.pushOp;
@@ -246,23 +278,6 @@ export class Battle {
       if (p.r > goal && p.stateT <= 0) { setPose(p, 'stand'); p.walking = true; p.running = true; p.r -= dt * 3; const [x, z] = polar(p.r, p.a); p.root.position.set(x, floorAt(x, z), z); if (Math.random() < dt * 0.6) p.stateT = rnd(1, 2.5); }
       else { p.walking = false; setPose(p, 'fire'); if (Math.random() < dt) this.shoot(p, targets, cam, true); }
       p.root.rotation.y = Math.atan2(-p.root.position.x, -p.root.position.z);
-    }
-  }
-
-  /** Наши потери видны: боец падает на позиции. */
-  ourCasualties(sim) {
-    for (const p of Object.values(sim.platoons)) {
-      const prev = this.prevMen[p.id];
-      this.prevMen[p.id] = p.men;
-      if (prev === undefined || p.men >= prev) continue;
-      const s = p.where.s;
-      if (!s || !sim.sectors[s].op) continue;
-      const u = this.life.units[p.id];
-      const vis = u ? u.men.filter((m) => m.root.visible && m.pose !== 'lie' && m.pose !== 'sit') : [];
-      if (!vis.length) continue;
-      const m = vis[(Math.random() * vis.length) | 0];
-      setPose(m, 'lie'); m.downT = 25;
-      this.puff(m.root.position.x, m.root.position.z);
     }
   }
 

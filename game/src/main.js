@@ -8,12 +8,16 @@ import { buildHQ } from './world/hq.js';
 import { buildTerritory } from './world/territory.js';
 import { Life } from './world/life.js';
 import { Battle } from './world/battle.js';
+import { Army } from './world/army.js';
 import { drawMap, drawWallMap } from './world/mapdraw.js';
 import { floorAt, zoneAt, BOUND_R, baseGround as terrainTop, carve, SPOTS } from './world/layout.js';
 import { Sim } from './sim/sim.js';
 import { Director } from './sim/director.js';
 import { UI } from './ui/ui.js';
 import { Menus } from './ui/menus.js';
+import { Command } from './ui/command.js';
+import { changelogHtml, VERSION, UPDATE } from './ui/changelog.js';
+import { saveGame, loadGame, hasSave, clearSave } from './sim/save.js';
 import { SECTORS, fmtTime } from './sim/data.js';
 
 const BASE_RATE = 0.5;      // игровых минут в секунду (1 мин = 2 с)
@@ -49,6 +53,8 @@ const W = buildHQ(scene, tex, lights);
 const T = buildTerritory(scene, tex, lights, W);
 const life = new Life(scene, W, T, lights, audio);
 const battle = new Battle(scene, audio, life);
+const army = new Army(life, battle, T, audio);
+life.army = army; battle.army = army; life.officerNpc = army.officerNpc;
 drawWallMap(W.refs.wallMapC); W.refs.wallMapTex.needsUpdate = true;
 const solids = [...W.solids, ...T.solids];
 // точка появления — гарантированно свободная: ищем ближайшее место без предметов
@@ -67,9 +73,12 @@ const game = {
   sleep(h) { this.sim.sleep(h); },
 };
 const menus = new Menus(game);
+const command = new Command(menus, game);
+menus.command = command; game.army = army;
 
 // ----- игрок -----
 const player = new THREE.Vector3(W.refs.spots.start.x, EYE, W.refs.spots.start.z);
+game.player = player;
 let yaw = Math.PI / 2, pitch = -0.1, bob = 0, stepAcc = 0, zoom = 0, eyeY = EYE, zone = 'hq', lastObserve = {};
 const R = 0.28;
 
@@ -128,7 +137,8 @@ function act(it) {
     case 'officer': page = menus.officerField(sim.officers[it.oid]); break;
     case 'soldier': page = menus.soldier(it); break;
     case 'fieldphone': page = menus.fieldPhone(); break;
-    case 'personnel': page = menus.personnel(); break;
+    case 'personnel': page = command.page(); break;
+    case 'meeting': page = command.meeting(); break;
     case 'gramophone': { const on = audio.gramophone(); sim.say(on ? 'Патефон зашипел, потом заиграл вальс. В штабе стало тише.' : 'Вы снимаете иглу с пластинки.', null, 4); if (on) sim.captain.fatigue = Math.max(0, sim.captain.fatigue - 3); return; }
     case 'photo': page = menus.photo(); break;
     case 'books': page = menus.books(); break;
@@ -163,11 +173,14 @@ function setPause(on) {
   if (on) {
     input.release(); audio.suspend();
     const s = game.sim;
-    pauseSheet.innerHTML = `<div class="hdr"><span>Пауза</span><span>${s ? s.time.full : ''}</span></div>
-      <div class="txt">Вы — командир гарнизона и можете ходить по всей своей обороне: траншеи, блиндажи взводов, медпункт, склад, инженеры, НП.\n\n<b>В штабе</b>: начальник штаба Орлов (сводка, решения, поручения), телефон и рация, карта, бумаги, часы, койка.\n<b>На позициях</b>: говорите с командирами и бойцами, смотрите сами. В блиндажах есть полевые телефоны.\n<b>Планшет с картой</b>: клавиша M или кнопка «КАРТА».\n\nКомандиры и штаб работают без вас. Если что-то срочное — пришлют посыльного.</div>
-      <div class="opts"><button id="pz-go">Продолжить</button><button id="pz-new" class="back">Начать заново</button></div>`;
+    if (s && !s.over) saveGame(s, game.director, { x: player.x, z: player.z, yaw });
+    pauseSheet.innerHTML = `<div class="hdr"><span>Пауза · ${VERSION}</span><span>${s ? s.time.full : ''}</span></div>
+      <div class="txt">Вы — командир гарнизона. Вы ставите задачи обороне — Орлов передаёт их командирам участков, те — сержантам, сержанты — бойцам.\n\n<b>Командование</b> (Tab / P, кнопка «КОМАНДОВАНИЕ»): обстановка и приказы. Доступно в штабе, в командирском блиндаже, по полевому телефону в любом блиндаже и рядом с командиром.\n<b>Позиции</b>: обходите траншеи, говорите с командирами и бойцами, смотрите сами.\n<b>Планшет</b>: M или «КАРТА».\n\nВойна идёт и без вас: наблюдатели докладывают сержантам, сержанты — взводным, взводные — в штаб. Срочное принесёт посыльный.\nИгра сохраняется сама.</div>
+      <div class="opts"><button id="pz-go">Продолжить</button><button id="pz-news">Что нового в 1.3</button><button id="pz-new" class="back">Новая игра</button></div>`;
     pauseSheet.querySelector('#pz-go').onclick = () => setPause(false);
-    pauseSheet.querySelector('#pz-new').onclick = () => location.reload();
+    pauseSheet.querySelector('#pz-news').onclick = () => { pauseSheet.querySelector('.txt').innerHTML = changelogHtml(); pauseSheet.scrollTop = 0; };
+    pauseSheet.querySelector('#pz-new').onclick = () => { if (pauseSheet.dataset.sure) { clearSave(); location.reload(); } else { pauseSheet.dataset.sure = 1; pauseSheet.querySelector('#pz-new').textContent = 'Точно? Партия будет потеряна'; } };
+    delete pauseSheet.dataset.sure;
   } else {
     audio.resume();
     if (!input.touch && !ui.isOpen) canvas.requestPointerLock?.();
@@ -176,28 +189,44 @@ function setPause(on) {
 window.__appPause = () => { if (game.started && !game.paused && !game.sim?.over) setPause(true); };
 window.__appResume = () => {};
 window.__appBack = () => { if (!game.started) return; if (ui.isOpen) ui.close(); else setPause(!game.paused); };
-document.addEventListener('visibilitychange', () => { if (document.hidden) window.__appPause(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { if (game.started && game.sim && !game.sim.over) saveGame(game.sim, game.director, { x: player.x, z: player.z, yaw }); window.__appPause(); } });
+addEventListener('pagehide', () => { if (game.started && game.sim && !game.sim.over) saveGame(game.sim, game.director, { x: player.x, z: player.z, yaw }); });
 let mapKey = false, staffKey = false, replyKey = false;
-addEventListener('keydown', (e) => { if (e.code === 'KeyM') mapKey = true; if (e.code === 'KeyP') staffKey = true; if (e.code === 'KeyT') replyKey = true; });
+addEventListener('keydown', (e) => { if (e.code === 'KeyM') mapKey = true; if (e.code === 'KeyP' || e.code === 'Tab') { staffKey = true; e.preventDefault(); } if (e.code === 'KeyT') replyKey = true; });
 document.getElementById('replybtn')?.addEventListener('touchstart', (e) => { replyKey = true; e.preventDefault(); e.stopPropagation(); });
 document.getElementById('staffbtn')?.addEventListener('touchstart', (e) => { staffKey = true; e.preventDefault(); e.stopPropagation(); });
 document.getElementById('mapbtn')?.addEventListener('touchstart', (e) => { mapKey = true; e.preventDefault(); e.stopPropagation(); });
 
 // ----- старт -----
-document.getElementById('startbtn').addEventListener('click', () => {
+function beginGame(loaded) {
   audio.start(); audio.resume();
   document.getElementById('title').style.display = 'none';
-  game.sim = new Sim();
-  game.director = new Director(game.sim);
+  if (loaded) {
+    game.sim = loaded.sim; game.director = loaded.director;
+    if (loaded.player) { player.x = loaded.player.x; player.z = loaded.player.z; yaw = loaded.player.yaw ?? yaw; }
+    game.sim.say('Партия восстановлена. Неотвеченные запросы сняты — командиры решили их сами.', null, 5);
+  } else {
+    clearSave();
+    game.sim = new Sim();
+    game.director = new Director(game.sim);
+  }
   game.started = true;
   if (!input.touch) canvas.requestPointerLock?.();
   ui.fade(true); setTimeout(() => ui.fade(false), 100);
-});
+}
+document.getElementById('startbtn').addEventListener('click', () => beginGame(null));
+{
+  const meta = hasSave();
+  const cb = document.getElementById('contbtn');
+  if (meta && cb) { cb.style.display = ''; cb.textContent = `Продолжить (${fmtTime(meta.t).full})`; cb.addEventListener('click', () => { const l = loadGame(); beginGame(l); }); }
+  document.getElementById('newsbtn')?.addEventListener('click', () => { const n = document.getElementById('news'); n.innerHTML = changelogHtml(); n.style.display = n.style.display === 'block' ? 'none' : 'block'; });
+  const vl = document.getElementById('verline'); if (vl) vl.textContent = `${VERSION} · ${UPDATE}`;
+}
 
 // ----- конец -----
 let ended = false;
 function showEnd() {
-  ended = true; input.release(); audio.ringStop();
+  ended = true; clearSave(); input.release(); audio.ringStop();
   const sim = game.sim;
   const title = sim.over === 'victory' ? 'ДОНЕСЕНИЕ: ГАРНИЗОН УДЕРЖАЛ РУБЕЖ' : 'ДОНЕСЕНИЕ: ШТАБ ГАРНИЗОНА ПОТЕРЯН';
   ui.open({ hdr: ['Итоговый рапорт', fmtTime(sim.t).full], who: title, stamp: sim.over === 'victory' ? 'ДЕБЛОКАДА' : 'ПОТЕРЯН', text: sim.report_summary(),
@@ -206,8 +235,8 @@ function showEnd() {
 
 // ----- цикл -----
 const clock = new THREE.Clock();
-let mapTimer = 0, ringing = false, radioTimer = 0, lastAdj = null, time = 0, wasAsleep = false, lastPend = 0;
-const pendEl = document.getElementById('pend'), replyBtn = document.getElementById('replybtn');
+let saveTimer = 60, mapTimer = 0, ringing = false, radioTimer = 0, lastAdj = null, time = 0, wasAsleep = false, lastPend = 0;
+const pendEl = document.getElementById('pend');
 
 function frame() {
   requestAnimationFrame(frame);
@@ -219,15 +248,13 @@ function frame() {
   if (game.started && !game.paused && sim && !ended) {
     if (input.consumeMenu()) { if (ui.isOpen) ui.close(); else setPause(true); }
     if (mapKey) { mapKey = false; if (ui.isOpen && ui.page && ui.page.hdr && ui.page.hdr[0] === 'Планшет') ui.close(); else if (!ui.isOpen) openPage(menus.pocketMap(mapPlayer())); }
-    if (staffKey) { staffKey = false; if (!ui.isOpen) openPage(menus.personnel()); }
-    // быстрый ответ: из штаба, блиндажа (полевой телефон) или рядом с командиром
+    // командование: из штаба, командирского блиндажа, любого блиндажа (полевой телефон) или рядом с командиром
     const nPend = sim.staff.pendingDecisions().length;
     const nearOff = Object.values(life.officerNpc).some((n) => n.root.visible && Math.hypot(n.root.position.x - player.x, n.root.position.z - player.z) < 4);
     const canAnswer = zone === 'hq' || zone.startsWith('dug') || nearOff;
-    if (replyKey) { replyKey = false; if (!ui.isOpen) { if (canAnswer) openPage(menus.commPanel()); else sim.say('Ответить можно из штаба, из блиндажа по полевому телефону или лично командиру. Срочное принесёт посыльный.', null, 4); } }
-    pendEl.textContent = nPend ? `☎ ${nPend}${canAnswer ? ' — T' : ''}` : '';
-    replyBtn.style.display = nPend && canAnswer && input.touch ? 'block' : 'none';
-    if (nPend > lastPend && zone === 'hq') { const m = sim.staff.pendingDecisions().slice(-1)[0]; if (m) sim.say(`${m.fromName} — ждёт решения. Нажмите T, чтобы ответить.`, 'Мирон', 4); }
+    if (staffKey || replyKey) { staffKey = replyKey = false; if (ui.isOpen && ui.page && ui.page.hdr && ui.page.hdr[0] === 'Командование') ui.close(); else if (!ui.isOpen) { if (canAnswer) openPage(command.page()); else sim.say('Командовать можно из штаба, из командирского блиндажа, по полевому телефону в любом блиндаже или лично через командира. Срочное принесёт посыльный.', null, 5); } }
+    pendEl.textContent = nPend ? `☎ ${nPend}${canAnswer ? ' — Tab' : ''}` : '';
+    if (nPend > lastPend && zone === 'hq') { const m = sim.staff.pendingDecisions().slice(-1)[0]; if (m) sim.say(`${m.fromName} — ждёт решения. Командование — Tab.`, 'Мирон', 4); }
     lastPend = nPend;
     // время
     let rate = BASE_RATE;
@@ -242,6 +269,7 @@ function frame() {
       if (urgent) sim.wake('Гусев трясёт вас за плечо: «Капитан! Капитан, проснитесь!»');
     }
     sim.update(rate * dt); game.director.tick();
+    saveTimer -= dt; if (saveTimer <= 0 && !ui.isOpen) { saveTimer = 60; saveGame(sim, game.director, { x: player.x, z: player.z, yaw }); }
     if (sim.captain.asleep !== wasAsleep) { wasAsleep = sim.captain.asleep; ui.fade(wasAsleep); }
     if (sim.over) showEnd();
 
@@ -297,6 +325,7 @@ function frame() {
     player.y = eyeY;
 
     life.update(dt, time, sim, player);
+    army.update(dt, time, sim, player);
     battle.update(dt, time, sim, player);
     // звуковая обстановка по месту
     const inside = zone === 'hq' || zone.startsWith('dug');
@@ -334,7 +363,7 @@ function surfaceAt(x, z) {
 }
 
 // Отладочный доступ (для автотестов)
-window.__dbg = { battle, renderer, game, act, menus, openPage, player, life, setYaw: (y, p) => { yaw = y; pitch = p; } };
+window.__dbg = { battle, army, renderer, game, act, menus, openPage, player, life, setYaw: (y, p) => { yaw = y; pitch = p; } };
 
 camera.position.copy(player);
 frame();

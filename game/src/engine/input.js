@@ -14,7 +14,7 @@ export class Input {
     addEventListener('keydown', (e) => {
       this.keys.add(e.code);
       if (e.code === 'KeyE' || e.code === 'Space' || e.code === 'Enter') this.actPressed = true;
-      if (e.code === 'Escape' || e.code === 'Tab') { this.menuPressed = true; e.preventDefault(); }
+      if (e.code === 'Escape') { this.menuPressed = true; e.preventDefault(); } if (e.code === 'Tab') e.preventDefault();
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
 

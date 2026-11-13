@@ -8,6 +8,7 @@ import {
 } from './lines.js';
 import { Enemy } from './enemy.js';
 import { Staff } from './staff.js';
+import { Chain } from './chain.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -62,6 +63,7 @@ export class Sim {
     this.enemy = new Enemy(this);
     this.player = { zone: 'hq', x: 0, z: 0 };
     this.staff = new Staff(this);
+    this.chain = new Chain(this);
     this.fx = []; // визуальные/звуковые события для мира: {type, sector, near}
     this.subtitle = null;
     this._tick = 0;
@@ -112,6 +114,7 @@ export class Sim {
     this.inboxTick();
     for (const m of this.inbox) if (!m.routed && this.t >= m.arrive) this.staff.route(m);
     this.staff.tick();
+    this.chain.tick();
     if (this.t >= this.reliefT && !this.over) this.finish('victory');
   }
 
@@ -153,9 +156,9 @@ export class Sim {
     const fatigueF = 1 - p.fatigue / 220;
     const moraleF = 0.55 + p.morale / 220;
     const offF = o && o.alive ? 0.85 + o.exp / 330 : 0.8;
-    const away = o && o.inHQ ? 0.85 : 1;
+    const away = o && (o.inHQ || o.atMeeting) ? 0.85 : 1;
     let fortF = 1;
-    if (sec) fortF = sec.held === 'line1' ? 1 + sec.fort / 80 : 1.3;
+    if (sec) fortF = (sec.held === 'line1' ? 1 + sec.fort / 80 : 1.3) * (sec.posture === 'prepare' ? 1.08 : sec.posture === 'observe' ? 0.96 : 1);
     const handF = p.handover > 0 ? 0.7 : 1;
     const saveF = p.saveAmmo ? 0.85 : 1;
     return p.men * ammoF * fatigueF * moraleF * offF * away * fortF * handF * saveF;
@@ -180,6 +183,7 @@ export class Sim {
     if (sec.mines > 0 && op.minutes < 15) { eLoss += 1.5; sec.mines = Math.max(0, sec.mines - 0.1); }
     const hp = this.holderOf(sec.id);
     if (hp && hp.ambush > this.t && op.minutes < 20) eLoss *= 1.25;
+    if (sec.posture === 'prepare' && op.minutes < 15) eLoss *= 1.1;
     eLoss = Math.min(op.str, eLoss);
     op.str -= eLoss; op.lost += eLoss; this.stats.enemyKilled += eLoss * 0.4; this.enemy.pool -= 0;
     // наши потери
@@ -524,7 +528,9 @@ export class Sim {
     if (w.type === 'sector') {
       const sec = this.sectors[w.s];
       const shelled = sec.shelledUntil > this.t;
-      p.fatigue = clamp(p.fatigue + (0.012 + n * 0.012 + (shelled ? 0.03 : 0)) * (this.depot.food <= 0 ? 1.5 : 1), 0, 100);
+      const post = sec.posture === 'prepare' ? 1.6 : sec.posture === 'observe' ? 0.75 : 1;
+      p.fatigue = clamp(p.fatigue + (0.012 + n * 0.012 + (shelled ? 0.03 : 0)) * post * (this.depot.food <= 0 ? 1.5 : 1), 0, 100);
+      if (sec.posture === 'prepare' && !sec.op && sec.held !== 'lost') sec.fort = clamp(sec.fort + 0.006, 0, Math.max(sec.fort, Math.min(95, SECTORS[sec.id].fort + 20)));
       if (!sec.op && p.fatigue > 0) p.fatigue = clamp(p.fatigue - 0.004, 0, 100); // урывками спят
     } else if (w.type === 'res') {
       const rest = w.loc === 'hq' ? 0.075 : w.loc === 'center' ? 0.065 : 0.05;
@@ -585,7 +591,7 @@ export class Sim {
       }
     }
     // помощь соседу
-    if (p.where.type === 'sector' && !this.sectors[p.where.s].op && o.init > 50 && o.autonomy > 45 && p.men > 18 && !p.helpSent) {
+    if (p.where.type === 'sector' && !this.sectors[p.where.s].op && ((o.init > 50 && o.autonomy > 45) || (o.coordUntil > this.t && o.init > 30 && o.autonomy > 35)) && p.men > 18 && !p.helpSent) {
       for (const adj of SECTORS[p.where.s].adj) {
         const op = this.sectors[adj].op;
         if (op && op.phase === 'active' && op.ratio > 1.2 && chance(0.01)) {

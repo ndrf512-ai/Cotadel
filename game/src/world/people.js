@@ -8,9 +8,10 @@ import { toTex } from '../engine/textures.js';
 // Цветовые схемы. variant даёт разброс оттенков формы.
 const LOOKS = {
   soldier: { uni: ['#5c5a3e', '#625f40', '#57563c'], pants: '#4a4632', helmet: '#4c5440', cap: '#4c5440', gear: 'roll' },
-  officer: { uni: ['#6e664a'], pants: '#3a3a44', helmet: '#3e3a2c', cap: '#3c3e30', band: '#8a2018', gear: 'strap', boots: '#1a1612' },
+  officer: { uni: ['#6e664a'], pants: '#3a3a44', helmet: '#3e3a2c', cap: '#3c3e30', band: '#8a2018', gear: 'strap', boots: '#1a1612', coat: true },
+  leader: { uni: ['#5a5a3c', '#605e40'], pants: '#46422e', helmet: '#465036', cap: '#4c5440', band: '#3a2a1a', gear: 'leader' },
   staff: { uni: ['#625c46'], pants: '#3a3a44', cap: '#4a4a36', band: '#8a2018', gear: 'strap', boots: '#1a1612' },
-  enemy: { uni: ['#5e605c', '#585a56', '#64665e'], pants: '#4a4c48', helmet: '#40443e', cap: '#40443e', gear: 'pack' },
+  enemy: { uni: ['#5e605c', '#585a56', '#64665e'], pants: '#4a4c48', helmet: '#40443e', cap: '#40443e', gear: 'pack', boots: '#2a2622' },
   medic: { uni: ['#b0ac98'], pants: '#4a4632', helmet: '#4c5440', cap: '#4c5440', arm: '#a02018', gear: 'bag' },
   signal: { uni: ['#5a5a40'], pants: '#4a4632', helmet: '#4c5440', cap: '#4c5440', gear: 'phone' },
   eng: { uni: ['#56523c'], pants: '#46402e', helmet: '#4c5440', cap: '#4c5440', gear: 'shovel' },
@@ -114,8 +115,8 @@ const cache = new Map();
 function memo(k, f) { if (!cache.has(k)) cache.set(k, f()); return cache.get(k); }
 
 /** Торс с шеей и снаряжением (без головы). */
-function torsoGeo(gear, officer) {
-  return memo('t' + gear + officer, () => {
+function torsoGeo(gear, officer, coat) {
+  return memo('t' + gear + officer + coat, () => {
     const p = [];
     p.push(part(0.40, 0.30, 0.23, R.uni2, undefined, 0, 0.42, 0));        // грудь
     p.push(part(0.36, 0.24, 0.21, R.uni, undefined, 0, 0.17, 0));         // живот
@@ -127,11 +128,16 @@ function torsoGeo(gear, officer) {
     if (gear === 'roll' || gear === 'pack') { p.push(part(0.08, 0.08, 0.06, R.belt, undefined, -0.12, 0.08, 0.12)); p.push(part(0.08, 0.08, 0.06, R.belt, undefined, 0.12, 0.08, 0.12)); }
     if (gear === 'pack') p.push(part(0.3, 0.32, 0.12, R.canvas, undefined, 0, 0.36, -0.16));
     if (gear === 'roll') p.push(part(0.08, 0.14, 0.06, R.metal, undefined, 0.19, 0.0, -0.06)); // фляга
+    if (gear === 'roll' || gear === 'leader') p.push(part(0.18, 0.2, 0.1, R.canvas, undefined, -0.21, -0.04, 0.02)); // сумка противогаза
+    if (gear === 'leader') { p.push(part(0.06, 0.1, 0.05, R.belt, undefined, -0.08, 0.08, 0.12), part(0.06, 0.1, 0.05, R.belt, undefined, 0.02, 0.08, 0.12), part(0.06, 0.1, 0.05, R.belt, undefined, 0.12, 0.08, 0.12)); p.push(part(0.03, 0.56, 0.02, R.belt, undefined, 0, 0.33, 0.12, 0, -0.62)); } // подсумки для дисков, ремень
+    if (gear === 'pack') { p.push(part(0.1, 0.12, 0.08, R.metal, undefined, 0.2, -0.02, -0.06)); p.push(part(0.08, 0.2, 0.08, R.metal, undefined, -0.12, 0.05, -0.2)); } // фляга, лопатка
     if (gear === 'strap') { p.push(part(0.04, 0.58, 0.02, R.belt, undefined, 0.02, 0.33, 0.12, 0, 0.62)); p.push(part(0.2, 0.16, 0.05, R.belt, undefined, -0.22, -0.05, 0.04)); } // портупея и планшет
     if (gear === 'bag') { p.push(part(0.22, 0.2, 0.09, R.white, undefined, 0.2, 0.02, 0.06)); p.push(part(0.08, 0.08, 0.01, R.arm, undefined, 0.2, 0.04, 0.11)); }
     if (gear === 'phone') { p.push(part(0.26, 0.22, 0.14, R.metal, undefined, 0, 0.32, -0.18)); p.push(cyl(0.09, 0.09, 0.12, R.wood, 0, 7).rotateZ(Math.PI / 2).translate(0, 0.05, -0.2)); }
     if (gear === 'shovel') { p.push(part(0.04, 0.5, 0.03, R.wood, undefined, 0.1, 0.3, -0.15, 0, 0.3)); p.push(part(0.16, 0.18, 0.02, R.metal, undefined, 0.18, 0.06, -0.15, 0, 0.3)); }
     if (officer) p.push(part(0.08, 0.02, 0.05, R.band, undefined, -0.19, 0.6, 0), part(0.08, 0.02, 0.05, R.band, undefined, 0.19, 0.6, 0)); // погоны/петлицы
+    if (officer) { p.push(part(0.12, 0.06, 0.06, R.metal, undefined, -0.06, 0.38, 0.14)); p.push(part(0.08, 0.13, 0.06, R.belt, undefined, 0.2, -0.02, 0.06)); } // бинокль, кобура
+    if (coat) { p.push(part(0.46, 0.5, 0.29, R.uni2, undefined, 0, -0.23, 0)); p.push(part(0.47, 0.06, 0.3, R.uni, undefined, 0, 0.0, 0)); } // полы шинели
     return merge(p);
   });
 }
@@ -143,7 +149,8 @@ function headGeo(hat) {
     p.push(part(0.04, 0.05, 0.04, R.skin, undefined, 0, 0.1, 0.12));            // нос
     p.push(part(0.03, 0.06, 0.04, R.skin, undefined, -0.11, 0.12, 0), part(0.03, 0.06, 0.04, R.skin, undefined, 0.11, 0.12, 0)); // уши
     if (hat !== 'hair') p.push(part(0.2, 0.13, 0.02, R.hair, undefined, 0, 0.17, -0.11)); // затылок
-    if (hat === 'helmet') { p.push(dome(0.15, R.helmet, 0.18)); p.push(cyl(0.165, 0.17, 0.03, R.helmet, 0.19, 8)); }
+    if (hat === 'helmet') { p.push(dome(0.15, R.helmet, 0.18)); p.push(cyl(0.165, 0.17, 0.03, R.helmet, 0.19, 8)); p.push(part(0.012, 0.13, 0.012, R.belt, undefined, -0.105, 0.11, 0.04), part(0.012, 0.13, 0.012, R.belt, undefined, 0.105, 0.11, 0.04)); }
+    else if (hat === 'ehelm') { p.push(dome(0.15, R.helmet, 0.17, 0.95)); p.push(cyl(0.15, 0.185, 0.07, R.helmet, 0.15, 8)); }
     else if (hat === 'cap') { p.push(cyl(0.15, 0.115, 0.06, R.cap, 0.27, 8)); p.push(cyl(0.118, 0.118, 0.04, R.band, 0.24, 8)); p.push(part(0.18, 0.015, 0.08, R.boots, undefined, 0, 0.23, 0.12)); }
     else if (hat === 'pilotka') { p.push(part(0.2, 0.07, 0.22, R.cap, undefined, 0.01, 0.25, 0, 0, 0.12)); }
     else if (hat === 'ushanka') { p.push(part(0.24, 0.1, 0.24, R.cap, undefined, 0, 0.27, 0)); p.push(part(0.05, 0.12, 0.14, R.cap, undefined, -0.12, 0.18, 0), part(0.05, 0.12, 0.14, R.cap, undefined, 0.12, 0.18, 0)); }
@@ -164,11 +171,21 @@ const legGeo = (wide) => memo('l' + wide, () => merge([
   part(0.15, 0.38, 0.17, R.boots, undefined, 0, -0.68, 0.0), part(0.14, 0.07, 0.24, R.boots, undefined, 0, -0.84, 0.04),
 ]));
 
-let rifleMat, propMat;
-const rifleGeo = merge([part(0.04, 0.05, 0.95, R.wood, undefined, 0, 0, 0), part(0.025, 0.025, 0.4, R.metal, undefined, 0, 0.02, 0.6)]);
+let rifleMat, metalMat, propMat;
+// оружие: винтовка (с затвором, ремнём, штыком у наших), автомат с диском
+const rifleGeo = (bayonet) => memo('rifle' + bayonet, () => merge([
+  part(0.05, 0.08, 0.32, R.wood, undefined, 0, -0.01, -0.35), part(0.04, 0.05, 0.55, R.wood, undefined, 0, 0, 0.08),
+  part(0.022, 0.022, 0.4, R.metal, undefined, 0, 0.02, 0.5), part(0.02, 0.03, 0.06, R.metal, undefined, 0.03, 0.03, -0.12),
+  part(0.006, 0.08, 0.5, R.belt, undefined, -0.025, -0.05, 0.0),
+  ...(bayonet ? [part(0.01, 0.012, 0.28, R.metal, undefined, 0, 0.02, 0.83)] : []),
+]));
+const smgGeo = () => memo('smg', () => merge([
+  part(0.045, 0.07, 0.22, R.wood, undefined, 0, -0.01, -0.22), part(0.05, 0.06, 0.2, R.wood, undefined, 0, 0, -0.02),
+  part(0.04, 0.04, 0.3, R.metal, undefined, 0, 0.015, 0.22), cyl(0.07, 0.07, 0.05, R.metal, 0, 9).rotateZ(Math.PI / 2).translate(0, -0.06, 0.04),
+]));
 
 const ROLE_DEFAULTS = {
-  soldier: { head: 'helmet' }, officer: { head: 'cap' }, staff: { head: 'cap' }, enemy: { head: 'helmet' },
+  soldier: { head: 'helmet' }, officer: { head: 'cap' }, staff: { head: 'cap' }, enemy: { head: 'ehelm' }, leader: { head: 'helmet' },
   medic: { head: 'pilotka' }, signal: { head: 'pilotka' }, eng: { head: 'helmet' }, supply: { head: 'ushanka' },
   olya: { head: 'hair' }, wounded: { head: 'bandage' },
 };
@@ -186,11 +203,12 @@ export function makePerson(o = {}) {
   let head = o.head || ROLE_DEFAULTS[look]?.head || 'helmet';
   if (head === 'bare' && look !== 'wounded') head = 'pilotka';
   const officer = look === 'officer' || look === 'staff';
+  if (look === 'enemy' && head === 'helmet') head = 'ehelm';
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body);
   const hips = new THREE.Group(); hips.position.y = 0.92; body.add(hips);
   const torso = new THREE.Group(); hips.add(torso);
-  torso.add(new THREE.Mesh(torsoGeo(L.gear, officer), m));
+  torso.add(new THREE.Mesh(torsoGeo(L.gear, officer, !!L.coat && !o.noCoat), m));
   const headG = new THREE.Group(); headG.position.y = 0.63; torso.add(headG);
   headG.add(new THREE.Mesh(headGeo(head), m));
   const arm = (x) => { const g = new THREE.Group(); g.position.set(x, 0.52, 0); g.add(new THREE.Mesh(armGeo(!!L.arm), m)); torso.add(g); return g; };
@@ -199,9 +217,11 @@ export function makePerson(o = {}) {
   const legL = leg(-0.1), legR = leg(0.1);
   const p = { root, body, hips, torso, head: headG, armL, armR, legL, legR, phase: Math.random() * 6, pose: 'stand', walking: false, running: false,
     talk: 0, idle: { t: 1 + Math.random() * 5, act: null, d: 0 }, cur: null, role: look, fire: 0, gait };
-  if (o.rifle) {
-    rifleMat = rifleMat || mat({ color: 0x5a4a3a, outdoor: true });
-    const r = new THREE.Mesh(rifleGeo, rifleMat); r.position.set(0.02, -0.5, 0.15); r.rotation.x = 1.45; armR.add(r); p.rifle = r;
+  const weapon = o.weapon || (o.rifle ? 'rifle' : null);
+  if (weapon) {
+    rifleMat = rifleMat || mat({ color: 0x7a6650, outdoor: true });
+    const r = new THREE.Mesh(weapon === 'smg' ? smgGeo() : rifleGeo(look !== 'enemy'), m);
+    r.position.set(0.02, -0.5, 0.12); r.rotation.x = 1.45; armR.add(r); p.rifle = r; p.weapon = weapon;
   }
   propMat = propMat || mat({ color: 0x6a6448, outdoor: true });
   const crate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.3, 0.35), propMat); crate.position.set(-0.26, -0.55, 0.3); crate.visible = false; armR.add(crate); p.crate = crate;
@@ -227,6 +247,15 @@ function poseTarget(p, t) {
     case 'phone': Object.assign(T, { aRX: -2.4, aRZ: -0.35, headY: 0.2, headX: 0.1, aLX: -0.4 }); break;
     case 'papers': Object.assign(T, { aLX: -1.0, aRX: -1.05, aLZ: 0.3, aRZ: -0.3, headX: 0.35 }); break;
     case 'sitdesk': Object.assign(T, { hipsY: 0.47, lLX: -1.5, lRX: -1.45, aLX: -1.1, aRX: -1.15, torsoX: 0.25, headX: 0.3 }); break;
+    case 'cover': Object.assign(T, { hipsY: 0.5, lLX: -1.45, lRX: -0.3, torsoX: 0.55, headX: 0.35, aLX: -0.8, aRX: -0.9, aLZ: 0.2 }); break;   // пригнулся за бруствером
+    case 'observe': Object.assign(T, { aLX: -2.2, aRX: -2.2, aLZ: -0.45, aRZ: 0.45, headX: -0.05 }); break;                                      // бинокль у глаз
+    case 'attention': Object.assign(T, { aLZ: 0.02, aRZ: -0.02, torsoX: -0.04, headX: -0.03 }); break;                                            // смирно
+    case 'report': Object.assign(T, { aLZ: 0.02, aRX: -0.7, aRZ: -0.2, torsoX: -0.03 }); break;                                                     // докладывает
+    case 'point': Object.assign(T, { aRX: -1.55, aRZ: -0.15, torsoY: 0.15, headY: 0.15 }); break;                                                 // указывает
+    case 'wounded': Object.assign(T, { bodyX: -Math.PI / 2, bodyY: 0.22, bodyZ: 0.9, aLX: -1.9, aLZ: 0.6, aRX: -0.2, lLX: 0.4, lRX: -0.25, headY: 0.5 }); break;
+    case 'aid': Object.assign(T, { hipsY: 0.42, lLX: -1.55, lRX: 0.6, torsoX: 0.85, headX: 0.4, aLX: -1.6, aRX: -1.4, aLZ: 0.3, aRZ: -0.3 }); break;   // на коленях у раненого
+    case 'stretcher': Object.assign(T, { aLX: -0.5, aRX: -0.5, aLZ: 0.08, aRZ: -0.08, torsoX: 0.12 }); break;                                       // несёт носилки
+    case 'support': Object.assign(T, { aLX: -0.3, aLZ: 1.2, torsoZ: -0.1, aRX: -0.3 }); break;                                                     // поддерживает раненого
   }
   return T;
 }
@@ -242,6 +271,8 @@ function applyPose(p, c) {
 
 export function resetPose(p) { p.cur = poseTarget(p, 0); applyPose(p, p.cur); }
 
+export function act(p, type, dur) { p.action = { type, t: dur }; }
+
 export function setPose(p, pose) {
   p.pose = pose;
   p.crate.visible = pose === 'carry';
@@ -256,19 +287,20 @@ const IDLE = {
   papers: ['flip', 'look'],
   crouch: ['look', 'peek'],
   work: [], lie: [], prone: [], carry: [], phone: ['look'], fire: [],
+  cover: ['peek', 'look'], observe: ['look'], attention: [], report: [], point: [], wounded: [], aid: [], stretcher: [], support: [],
 };
 
 /** Анимация: процедурная надстройка над позой и плавный переход (без рывков). */
 export function animate(p, dt, t) {
   const T = poseTarget(p, t);
-  const walk = p.walking && (p.pose === 'stand' || p.pose === 'carry');
+  const walk = p.walking && (p.pose === 'stand' || p.pose === 'carry' || p.pose === 'stretcher' || p.pose === 'support');
   const g = p.gait || { speed: 1, swing: 1, lean: 0, tempo: 1 };
   p.phase += dt * (walk ? (p.running ? 11 : 7) * g.speed : 1.4 * g.tempo);
   const s = Math.sin(p.phase);
   if (walk) {
     const a = (p.running ? 0.9 : 0.55) * g.swing;
     T.lLX = s * a; T.lRX = -s * a;
-    if (p.pose === 'stand') { T.aLX = -s * a * 0.8 - (p.running ? 0.5 : 0); T.aRX = s * a * 0.8 - (p.running ? 0.5 : 0); }
+    if (p.pose === 'stand') { T.aLX = -s * a * 0.8 - (p.running ? 0.5 : 0); T.aRX = s * a * 0.8 - (p.running ? 0.5 : 0); if (p.rifle && p.running) { T.aRX = -1.0; T.aLX = -1.1; } }
     T.hipsY = 0.92 + Math.abs(Math.cos(p.phase)) * (p.running ? 0.05 : 0.025);
     T.torsoX = (p.running ? 0.25 : 0.04) + g.lean;
     T.torsoY = s * 0.06;
@@ -298,11 +330,30 @@ export function animate(p, dt, t) {
     if (p.pose === 'phone') T.headY += Math.sin(t * 0.8) * 0.15;
   }
   if (p.talk > 0) { T.aRX = Math.min(T.aRX, -0.6) + Math.sin(t * 5) * 0.25; T.aRZ = -0.3; T.headX -= 0.05; p.talk -= dt; }
+  // короткие действия поверх позы
+  const A = p.action;
+  if (A) {
+    A.t -= dt;
+    const k = Math.min(1, A.t * 3);
+    if (A.type === 'reload') { T.aLX = -0.9; T.aRX = -1.1 + Math.sin(t * 14) * 0.15; T.headX = 0.45; }
+    else if (A.type === 'point') { T.aRX = -1.6; T.aRZ = -0.1; T.headY += 0.2; }
+    else if (A.type === 'salute') { T.aRX = -2.6 * k; T.aRZ = -0.6 * k; T.torsoX = -0.04; }
+    else if (A.type === 'popup') { T.hipsY = Math.max(T.hipsY, 0.7); T.torsoX = 0.15; T.aLX = -1.6; T.aRX = -1.35; T.aLZ = -0.35; T.headX = 0.1; }
+    else if (A.type === 'flinch') { T.torsoX += 0.35; T.headX += 0.4; T.hipsY -= 0.08; }
+    if (A.t <= 0) p.action = null;
+  }
+  // плавный поворот на месте
+  if (p.wantYaw !== undefined && !p.walking) {
+    const r = p.root.rotation;
+    const d = ((p.wantYaw - r.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    r.y += d * Math.min(1, dt * 5);
+    if (Math.abs(d) > 0.3) { T.lLX += Math.sin(t * 9) * 0.25; T.lRX -= Math.sin(t * 9) * 0.25; } // переступает при повороте
+  }
   if (p.fire > 0) { T.torsoX -= p.fire * 0.4; p.fire = Math.max(0, p.fire - dt * 6); }
   if (p.lookAt !== undefined) { T.headY = THREE.MathUtils.clamp(p.lookAt, -0.9, 0.9); }
   // плавный переход к цели
   const c = p.cur;
-  const k = 1 - Math.exp(-dt * (p.pose === 'lie' || p.pose === 'prone' ? 5 : 9));
+  const k = 1 - Math.exp(-dt * (p.pose === 'lie' || p.pose === 'prone' || p.pose === 'wounded' ? 5 : 9));
   for (const key in T) c[key] += (T[key] - c[key]) * k;
   applyPose(p, c);
 }

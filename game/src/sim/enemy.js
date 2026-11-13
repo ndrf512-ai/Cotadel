@@ -18,6 +18,11 @@ export class Enemy {
     this.mainDir = null;
     this.nextHarass = sim.t + rnd(40, 90);
     this.disrupted = {};
+    this.cooldown = {};     // после отражения противник перегруппировывается
+    this.known = {};        // участки, которые его разведка осмотрела
+    this.revealed = {};     // где наши пулемёты выдали себя
+    this.recon = null;
+    this.nextRecon = sim.t + rnd(180, 300);
     // План операции на трое суток. Цели выбираются по ходу, по данным разведки.
     this.plan = [
       { t: D(1, 17, 40), type: 'probe', target: 'N', str: 45 },
@@ -51,7 +56,7 @@ export class Enemy {
     const near = { nearN: 'N', nearE: 'E', nearS: 'S' }[this.seenReserve];
     if (near === s) d += 40;
     if (this.seenReserve === 'center') d += 12;
-    return d * rnd(0.8, 1.2);
+    return d * (this.known[s] && this.sim.t - this.known[s] < 600 ? 1 : rnd(0.8, 1.2));
   }
 
   pickTarget(rule) {
@@ -84,7 +89,11 @@ export class Enemy {
         const ps = front.map((s) => ({ s, f: this.sim.holderOf(s)?.fatigue || 0 })).sort((a, b) => b.f - a.f);
         return ps[0]?.s || byWeak[0];
       }
-      case 'weakest': return lost.length && chance(0.3) ? null : byWeak[0];
+      case 'weakest': {
+        if (lost.length && chance(0.3)) return null;
+        const ready = byWeak.filter((s) => !(this.cooldown[s] > this.sim.t));
+        return ready[0] || byWeak[0];
+      }
       default: return rule;
     }
   }
@@ -123,10 +132,13 @@ export class Enemy {
     // беспокоящий огонь
     if (t >= this.nextHarass && this.shells > 0) {
       const n = sim.night > 0.5 ? rnd(2, 5) : rnd(3, 8);
-      const target = chance(0.12) ? 'hq' : pick(SECTOR_IDS.filter((s) => sim.sectors[s].held !== 'lost')) || 'hq';
+      const rev = SECTOR_IDS.filter((s) => this.revealed[s] > t - 360 && sim.sectors[s].held !== 'lost');
+      const target = chance(0.12) ? 'hq' : rev.length && chance(0.5) ? pick(rev) : pick(SECTOR_IDS.filter((s) => sim.sectors[s].held !== 'lost')) || 'hq';
       for (let i = 0; i < n; i++) this.shell(target, 1, i * 1.5 + rnd(0, 0.8));
       this.nextHarass = t + rnd(45, 140);
     }
+    this.reconTick(t);
+    this.adaptTick(t);
     // выдвижение к штабу из захваченного сектора
     const push = sim.hq.pushOp;
     if (push && push.phase === 'prep' && t >= push.tStart) {
@@ -140,6 +152,69 @@ export class Enemy {
       this.log('Радиопеленгаторы засекли штаб гарнизона. Налёт на командный пункт.');
       for (let i = 0; i < 6; i++) this.shell('hq', 1, i * 0.9);
     }
+  }
+
+  /** Разведка противника у нашей проволоки. Незамеченная — узнаёт оборону точно. */
+  reconTick(t) {
+    const sim = this.sim;
+    if (!this.recon && t >= this.nextRecon) {
+      if (sim.night > 0.4) {
+        const front = ['N', 'E', 'S'].filter((s) => sim.sectors[s].held !== 'lost');
+        const s = front.sort((a, b) => (this.known[a] || 0) - (this.known[b] || 0))[0];
+        if (s) { this.recon = { s, t0: t, t1: t + 40, spotted: false }; this.log(`Разведгруппа противника пошла к проволоке ${SECTORS[s].gen} сектора.`); }
+      }
+      this.nextRecon = t + rnd(150, 260);
+    }
+    const r = this.recon;
+    if (!r) return;
+    if (!r.spotted && t % 10 === 0) {
+      const sec = sim.sectors[r.s];
+      const h = sim.holderOf(r.s);
+      const p = 0.12 + (sec.posture === 'observe' ? 0.3 : 0) + (sec.posture === 'prepare' ? 0.12 : 0) + (h ? (sim.officerOf(h)?.exp || 50) / 600 : 0);
+      if (h && chance(p)) {
+        r.spotted = true; r.t1 = t + 6;
+        this.pool -= 4; sim.stats.enemyKilled += 2;
+        sim.fx.push({ type: 'skirmish', sector: r.s });
+        const o = sim.officerOf(h);
+        sim.send({ from: o, unit: h.id, kind: 'recon', expire: 30, text: `${o.short}: «У проволоки — их разведка, человек пять. Наблюдатель засёк, отогнали огнём. Значит, присматриваются к нам.»`, intel: { enemy: 'разведка противника' }, options: [{ label: 'Понял.', fn: () => ({}) }] });
+      }
+    }
+    if (t >= r.t1) {
+      if (!r.spotted) { this.known[r.s] = t; this.log(`Разведка противника незамеченной осмотрела ${SECTORS[r.s].name.toLowerCase()} сектор.`); }
+      this.recon = null;
+    }
+  }
+
+  /** Командир противника по ходу атаки: вводит резерв или переносит удар. */
+  adaptTick(t) {
+    const sim = this.sim;
+    for (const op of this.ops) {
+      if (op.phase !== 'active' || op.type !== 'assault' || op.adapted || op.minutes < 25) continue;
+      op.adapted = true;
+      if ((op.pressure || 0) > 0.45 && this.pool > 60) {
+        // атака идёт — вводит резерв, чтобы дожать
+        const add = Math.min(50, this.pool);
+        this.pool -= add; op.str += add;
+        this.log(`${this.label(op)}: атака идёт — противник вводит резерв (${Math.round(add)} чел.).`);
+      } else if ((op.pressure || 0) < 0.2 && op.lost > op.init * 0.15) {
+        // увязла — отходит, перегруппировывается и бьёт там, где слабее
+        const other = ['N', 'E', 'S'].filter((s) => s !== op.sector && sim.sectors[s].held !== 'lost' && !sim.sectors[s].op)
+          .sort((a, b) => this.estimateDefense(a) - this.estimateDefense(b))[0];
+        if (!other) continue;
+        const sec = sim.sectors[op.sector];
+        const left = op.str;
+        this.log(`${this.label(op)}: атака увязла — противник отходит и готовит удар по ${SECTORS[other].ins} сектору.`);
+        // отход — не наша победа: противник уходит организованно, сохранив силы
+        op.phase = 'done'; sec.op = null; sec.noise = 0;
+        this.pool += left;
+        const take = Math.min(this.pool, left + 60);
+        const at = t + rnd(30, 45);
+        this.plan.push({ type: 'assault', target: other, str: take, t: at, prepAt: t, prepped: true, arty: 15, signals: 'quiet' });
+        this.signals(this.plan[this.plan.length - 1]);
+      }
+    }
+    // наш пулемёт в бою выдаёт позицию
+    for (const s of ['N', 'E', 'S']) { const sec = sim.sectors[s]; if (sec.op && sec.op.phase === 'active' && sec.held === 'line1') this.revealed[s] = t; }
   }
 
   label(op) { return SECTORS[op.sector] ? `${SECTORS[op.sector].name} сектор` : 'КП'; }
@@ -192,6 +267,7 @@ export class Enemy {
     const loud = p.signals === 'loud';
     const night = sim.night > 0.5;
     let prob = loud ? 0.55 : p.type === 'infil' ? 0.08 : night ? 0.15 : 0.3;
+    if (sim.sectors[p.target]?.posture === 'observe') prob = Math.min(0.9, prob * 1.8); // наблюдатели выставлены
     if (p.target === 'W') prob *= 1.3; // Кравец внимателен
     if (!chance(prob)) return;
     const s = p.target;
@@ -271,6 +347,7 @@ export class Enemy {
 
   onOpEnd(op, repelled) {
     this.pool += op.str * (repelled ? 0.85 : 0.4);
+    if (repelled && op.sector) this.cooldown[op.sector] = this.sim.t + 120;
     this.log(`${this.label(op)}: ${repelled ? 'атака отбита' : 'противник овладел сектором'}; потери атакующих ≈ ${Math.round(op.lost)} чел.`);
     if (op.type === 'feint' && repelled) {
       // если резерв клюнул на демонстрацию — запоминаем

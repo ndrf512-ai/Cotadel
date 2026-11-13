@@ -240,6 +240,7 @@ export function buildHQ(scene, tex, lights) {
   box(root, 14.6, 0.5, 9.8, 3.0, H + 0.35, -0.5, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
   box(root, 2.5, H + 0.1, 5.0, 8.75, (H + 0.1) / 2, 1.5, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
   for (let i = 0; i < 10; i++) box(root, 0.9, 0.3, 0.5, -3.6 + i * 1.05, H + 0.75, -5.1, mBag, { ry: (i % 3) * 0.05 });
+  exterior(root, W, lights, tex, { mLog, mMetalD, mBag });
   // ---- пыль ----
   const dustN = 120;
   const dg = new THREE.BufferGeometry();
@@ -470,4 +471,68 @@ function homeRooms(root, W, lights, tex, m) {
   box(root, 0.5, 0.35, 0.4, 6.4, 0.17, -4.6, m.mCrate); box(root, 0.5, 0.35, 0.4, 6.4, 0.52, -4.6, m.mCrate, { ry: 0.15 });
   solid(6.1, 6.7, -4.85, -4.35);
   plane(root, 0.5, 0.6, 9.94, 1.5, -3.0, mat({ map: tex.doc }), { ry: -Math.PI / 2, sx: 1, sy: 1 }); // меню/приказ по кухне
+}
+/** Снаружи штаба: флагшток с флагом (виден издалека), антенна, маскировочная сеть над входом, бруствер у входа. */
+function exterior(root, W, lights, tex, m) {
+  const G0 = 1.2, top = H + 0.6;
+  const mOut = (k, o) => M(k, { ...o, outdoor: true });
+  // флагшток на северо-восточном углу крыши
+  const px = 9.7, pz = -4.9, ph = 6.2;
+  cyl(root, 0.06, 0.09, ph, 6, px, top + ph / 2, pz, mOut('pole', { color: 0x6a5a48 }));
+  cyl(root, 0.1, 0.1, 0.1, 6, px, top + ph + 0.05, pz, mOut('poleTop', { color: 0x8a7a40 }));
+  for (const [dx, dz] of [[0.6, 0], [-0.6, 0], [0, 0.6]]) {
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(px, top + ph * 0.7, pz), new THREE.Vector3(px + dx * 2.2, top, pz + dz * 2.2)]);
+    root.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x2a2620 })));
+  }
+  const fc = document.createElement('canvas'); fc.width = 32; fc.height = 20;
+  const x = fc.getContext('2d');
+  x.fillStyle = '#9a2018'; x.fillRect(0, 0, 32, 20);
+  for (let i = 0; i < 60; i++) { x.fillStyle = `rgba(0,0,0,${Math.random() * 0.15})`; x.fillRect((Math.random() * 32) | 0, (Math.random() * 20) | 0, 2, 1); }
+  x.fillStyle = 'rgba(0,0,0,0.25)'; x.fillRect(0, 0, 2, 20); x.fillRect(30, 0, 2, 20);
+  const fw = 1.7, fh = 1.05;
+  const geo = new THREE.PlaneGeometry(fw, fh, 10, 4);
+  geo.translate(fw / 2, 0, 0);
+  const flag = new THREE.Mesh(geo, mat({ map: toTex(fc, false), outdoor: true, side: THREE.DoubleSide }));
+  flag.position.set(px + 0.06, top + ph - fh / 2 - 0.05, pz);
+  flag.rotation.y = -0.6;
+  flag.frustumCulled = false;
+  root.add(flag);
+  W.refs.flag = { mesh: flag, base: Float32Array.from(geo.attributes.position.array), w: fw };
+  // мачта антенны над узлом связи
+  cyl(root, 0.035, 0.05, 4.5, 5, 5.5, top + 2.25, -4.8, mOut('mast', { color: 0x4a4a44 }));
+  for (const [dx, dz] of [[1.5, 0.4], [-1.5, 0.4], [0, -1.2]]) {
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(5.5, top + 4.2, -4.8), new THREE.Vector3(5.5 + dx, top, -4.8 + dz)]);
+    root.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x24221e })));
+  }
+  box(root, 0.5, 0.04, 0.04, 5.5, top + 4.4, -4.8, mOut('mastBar', { color: 0x4a4a44 }));
+  // маскировочная сеть над спуском ко входу
+  const net = new THREE.PlaneGeometry(5.4, 3.4, 6, 3);
+  const np = net.attributes.position;
+  for (let i = 0; i < np.count; i++) { const u = np.getX(i), v = np.getY(i); np.setZ(i, -0.35 * (1 - (u / 2.7) ** 2) * (1 - (v / 1.7) ** 2) + (Math.random() - 0.5) * 0.12); }
+  net.computeVertexNormals();
+  const netM = new THREE.Mesh(net, mat({ map: tex.tarp, color: 0x6a7448, outdoor: true, side: THREE.DoubleSide }));
+  netM.rotation.x = -Math.PI / 2; netM.position.set(-7.0, G0 + 2.25, 1.8); root.add(netM);
+  // столбы — на брустверах спуска, в стороне от тропы
+  for (const [nx, nz] of [[-9.6, 0.15], [-9.6, 3.45], [-4.4, 0.15], [-4.4, 3.45]]) { cyl(root, 0.05, 0.06, 2.3, 5, nx, G0 + 1.1, nz, mOut('netPole', { color: 0x5a4a38 })); W.solids.push([nx - 0.08, nx + 0.08, nz - 0.08, nz + 0.08]); }
+  // бруствер из мешков вдоль спуска
+  for (let i = 0; i < 5; i++) { box(root, 0.9, 0.3, 0.45, -9.6 + i * 1.0, G0 + 0.15, 0.25, m.mBag, { ry: (i % 2) * 0.06 }); box(root, 0.9, 0.3, 0.45, -9.6 + i * 1.0, G0 + 0.15, 3.35, m.mBag, { ry: (i % 2) * -0.06 }); }
+  // табличка «ШТАБ» над входом
+  const sc = document.createElement('canvas'); sc.width = 32; sc.height = 12;
+  const sx = sc.getContext('2d'); sx.fillStyle = '#c8b890'; sx.fillRect(0, 0, 32, 12); sx.fillStyle = '#2a2018'; sx.font = 'bold 9px monospace'; sx.fillText('ШТАБ', 3, 9.5);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.34), mat({ map: toTex(sc, false), outdoor: true }));
+  sign.position.set(-4.12, H - 0.15, 1.8); sign.rotation.y = -Math.PI / 2; root.add(sign);
+}
+
+/** Флаг полощется на ветру. */
+export function waveFlag(W, t, wind = 1) {
+  const f = W.refs.flag;
+  if (!f) return;
+  const pos = f.mesh.geometry.attributes.position, b = f.base;
+  for (let i = 0; i < pos.count; i++) {
+    const x = b[i * 3], y = b[i * 3 + 1];
+    const u = x / f.w;
+    const w = Math.sin(u * 5.5 - t * 4.2 * wind + y * 0.8) * 0.16 * u + Math.sin(u * 9 - t * 6.5) * 0.04 * u;
+    pos.setXYZ(i, x * (1 - 0.04 * u), y - u * u * 0.08 * (1.3 - wind), w);
+  }
+  pos.needsUpdate = true;
 }

@@ -5,6 +5,7 @@ import { radioMenu } from '../sim/director.js';
 import { drawMap } from '../world/mapdraw.js';
 import { esc } from './ui.js';
 import { DELEG_INFO, shorten } from '../sim/staff.js';
+import { TASKS } from '../sim/chain.js';
 
 const back = (fn, label = 'Назад') => ({ label, fn, cls: 'back' });
 const hang = { label: 'Отбой', fn: () => undefined, cls: 'back' };
@@ -43,10 +44,7 @@ export class Menus {
   }
 
   // ---------- телефон ----------
-  phone() {
-    const sim = this.sim;
-    return this.commPanel();
-  }
+  phone() { return this.command.page(); }
 
   directory() {
     const sim = this.sim;
@@ -297,7 +295,7 @@ export class Menus {
     if (m) return this.msgPage(m, 'Ординарец');
     const recent = sim.log.slice(-5).reverse().map((l) => `${fmtTime(l.t).hm} ${l.from}: ${l.text}`).join('\n');
     return { hdr: this.hdr('Ординарец'), who: 'Лёшка Гусев', text: sim.captain.fatigue > 70 ? '«Капитан, вы бы прилегли. На вас лица нет.»' : '«Слушаю, капитан.»', options: [
-      { label: 'Что нового?', fn: () => ({ text: recent || 'Тихо пока.' }) },
+      { label: 'Принеси сухой паёк.', fn: () => { sim.update(5); sim.captain.fatigue = Math.max(0, sim.captain.fatigue - 3); return { text: '«Сейчас, капитан.» Гусев возвращается с сухарями и куском сала, завёрнутым в газету.' }; } },
       { label: 'Сделай чаю, Лёша.', fn: () => { sim.update(5); sim.captain.fatigue = Math.max(0, sim.captain.fatigue - 7); return { text: 'Кружка обжигает пальцы. Чай пахнет дымом. Немного легче.' }; } },
       hang,
     ] };
@@ -329,7 +327,13 @@ export class Menus {
     const pend = sim.inbox.filter((m) => m.route === 'player' && !m.done && m.unit === p.id && sim.t >= m.arrive);
     const opts = pend.map((m) => ({ label: `Выслушать доклад: ${shorten(m.text, 50)}`, fn: () => this.msgPage(m, 'Доклад лично') }));
     opts.push({ label: 'Что у вас происходит?', fn: () => ({ text: this.situation(p, o), options: [back(() => this.officerField(o)), hang] }) });
-    opts.push({ label: 'Приказ…', fn: () => ({ text: 'Слушаю.', options: [...this.orderList(p, 'person'), back(() => this.officerField(o))], noType: true }) });
+    if (s) {
+      const task = sim.chain.task[s];
+      opts.push({ label: `Задача участку (сейчас: ${TASKS[task].label.toLowerCase()})…`, fn: () => ({ text: 'Слушаю, капитан.', noType: true, options: [
+        ...['hold', 'observe', 'prepare', 'withdraw'].map((t) => ({ label: TASKS[t].label, disabled: t === task || (t === 'withdraw' && sim.sectors[s].held !== 'line1'), fn: () => { const r = sim.chain.order(s, t); return { text: r.ok ? `${o.short}: «Есть — ${TASKS[t].label.toLowerCase()}.» Он оборачивается и подзывает сержантов.` : r.text, options: [back(() => this.officerField(o)), hang] }; } })),
+        back(() => this.officerField(o)),
+      ] }) });
+    } else opts.push({ label: 'Приказ…', fn: () => ({ text: 'Слушаю.', options: [...this.orderList(p, 'person'), back(() => this.officerField(o))], noType: true }) });
     for (const t of sim.officerTalkOptions(o).slice(0, 4)) opts.push({ label: t.label, fn: () => { const r = t.fn(); return { text: r.text, options: [back(() => this.officerField(o)), hang] }; } });
     if (s && !o.promise) opts.push({ label: 'Пообещать смену через 4 часа', fn: () => { o.promise = { what: 'relief', until: sim.t + 240 }; sim.trust(o, 2); return { text: '«Передам людям. Они будут ждать, капитан.»' }; } });
     opts.push(hang);
@@ -366,6 +370,18 @@ export class Menus {
     else if (r === 'eng') text = sim.eng.task ? `«${cap(sim.eng.task.label)}. Лучко сказала — к ночи кончить.»` : '«Брёвна сортируем. Задания пока нет.»';
     else if (r === 'march') text = p ? `«${p.name}, идём, куда приказано. ${p.where.to?.task === 'relieve' ? 'Сменять ребят.' : 'На усиление.'}»` : '«Идём.»';
     else if (r === 'depot') text = `«Ящики таскаю. Патронов на складе — ${sim.depot.ammo < 3 ? 'кот наплакал' : 'пока есть'}.»`;
+    else if (d.agent && p) {
+      const sec = p.where.type === 'sector' ? sim.sectors[p.where.s] : null;
+      const lead = d.role === 'leader';
+      if (d.alert === 'underfire' || d.alert === 'suppressed') text = lead ? pick(['«Отделение ведёт огонь! Патроны бережём!»', '«Голову ниже, капитан! Бьют прицельно!»']) : pick(['«Лезут, товарищ капитан! Пригнитесь!»', '«Держимся! Держимся!»', '«Магазин! Перезаряжаю!»']);
+      else if (d.alert === 'spotted') text = lead ? '«Наблюдатель засёк движение у проволоки. Доложил взводному — он звонит в штаб.»' : '«Вон там, за проволокой, шевелятся. Не высовывайтесь.»';
+      else if (d.alert === 'wary') text = lead ? `«Людей держу на местах, капитан. ${sec && sec.posture === 'prepare' ? 'Приказ — быть готовыми к бою.' : 'Что-то они затевают.'}»` : '«Велено глядеть в оба. Глядим.»';
+      else if (d.kind === 'observe') text = pick(['«Наблюдаю. Пока тихо. Ракету бы повесить…»', '«Утром у них дымок был, кухня, наверно.»']);
+      else if (d.kind === 'rest') text = pick(['«Отдыхаем, товарищ капитан. Через час — наша смена в окопе.»', '«Сапоги хоть просушить…»']);
+      else if (d.ammo === 'crit') text = '«Патронов по обойме на брата. Если полезут — в штыки пойдём.»';
+      else if (lead) text = pick([`«Отделение сержанта ${d.squad || ''} на позиции. Наблюдатель выставлен, смена по графику.»`, '«Людей расставил, капитан. Пулемёт — на фланге.»']);
+      else text = pick([`«Тихо пока. ${sim.officerOf(p)?.short || 'Командир'} велел глядеть в оба.»`, '«Письмо бы домой отправить… Когда почта будет?»', '«Ночью они там что-то копали. Слышно было.»']);
+    }
     else if (p) {
       const sec = p.where.type === 'sector' ? sim.sectors[p.where.s] : null;
       if (sec && sec.op && sec.op.phase === 'active') text = pick(['«Лезут, товарищ капитан! Пригнитесь!»', '«Патроны! Кто-нибудь, патроны!»', '«Держимся! Держимся!»']);
@@ -384,7 +400,7 @@ export class Menus {
 
   // ---------- штаб помощников ----------
   staffNpc(who) {
-    if (who === 'orlov') return this.orlov();
+    if (who === 'orlov') return this.command.page(this.orlovBrief());
     if (who === 'olya') return this.olya();
     if (who === 'gusev') return this.gusev();
     if (who === 'dyakov') return this.withDeleg(this.depot(), ['ammo']);
@@ -398,6 +414,14 @@ export class Menus {
     for (const k of keys) opts.push({ label: `Поручение: ${DELEG_INFO[k].title.toLowerCase()} — ${DELEG_INFO[k].opts[this.sim.staff.deleg[k]].toLowerCase()}`, fn: () => this.delegOne(k, () => this.staffNpc(DELEG_INFO[k].who === 'Дьяков' ? 'dyakov' : 'luchko')) });
     opts.push(hang);
     return { ...page, options: opts };
+  }
+
+  /** Орлов — командир обороны: при встрече коротко докладывает, что было без вас. */
+  orlovBrief() {
+    const sim = this.sim, st = sim.staff;
+    const fresh = st.digest.filter((d) => d.t > st.lastBrief).slice(-3);
+    st.lastBrief = sim.t;
+    return fresh.length ? `Орлов: «Пока вас не было: ${fresh.map((d) => `${fmtTime(d.t).hm} ${d.from} — ${shorten(d.text, 70)}`).join('; ')}.»` : 'Орлов: «Новых докладов нет, капитан.»';
   }
 
   orlov() {
@@ -439,13 +463,7 @@ export class Menus {
     } })), back(ret)], noType: true };
   }
 
-  fieldPhone() {
-    return { hdr: this.hdr('Полевой телефон'), who: 'Мирон (коммутатор)', text: '«Штаб слушает.»', options: [
-      { label: 'Пульт связи', fn: () => this.commPanel() },
-      { label: 'Начальника штаба — доклад', fn: () => this.orlov() },
-      hang,
-    ], noType: true };
-  }
+  fieldPhone() { return this.command.page('Полевой телефон: «Штаб слушает. Орлов у аппарата.»'); }
 
   depotStock() {
     const sim = this.sim, d = sim.depot;

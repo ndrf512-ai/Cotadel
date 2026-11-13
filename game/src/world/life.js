@@ -2,6 +2,7 @@
 // резерв на марше, посыльные, посетители штаба, противник в захваченных секторах, бой, свет.
 import * as THREE from 'three';
 import { makePerson, animate, Walker, setPose } from './people.js';
+import { waveFlag } from './hq.js';
 import { G, mat } from '../engine/ps1.js';
 import { nightness, RES_LOCS } from '../sim/data.js';
 import { SECTOR_POS, SPOTS, DUGOUTS, floorAt, buildNav, nearestNode, findPath, polar, baseGround, zoneAt, R_FRONT, R_SECOND, R_WIRE } from './layout.js';
@@ -32,7 +33,6 @@ export class Life {
     // --- тыловые службы ---
     const [dx, dz] = SPOTS.depot;
     this.dyakov = this.spawn({ look: 'supply', head: 'ushanka', beard: true, face: 3 }, dx + 1.5, dz + 0.4, -1.2, { id: 'staff', who: 'dyakov', label: 'Старшина Дьяков — склад' });
-    this.spawn({ look: 'supply', head: 'pilotka', pose: 'carry' }, dx - 1, dz + 0.8, 2.6, { id: 'soldier', role: 'depot', label: 'Боец хозвзвода' });
     const med = T.dugouts.med;
     this.grin = this.spawn({ look: 'medic', head: 'cap', pale: true, face: 1 }, med.spots.officer[0], med.spots.officer[2], -Math.PI / 2, { id: 'staff', who: 'grin', label: 'Военврач Гриневич' });
     this.spawn({ look: 'medic', head: 'pilotka', pose: 'work' }, med.spots.center[0] + 0.8, med.spots.center[2] - 1.2, 0.5, { id: 'soldier', role: 'medic', label: 'Санитар' });
@@ -42,10 +42,10 @@ export class Life {
     const [ex, ez] = SPOTS.engYard;
     this.luchko = this.spawn({ look: 'officer', head: 'hair', pale: true, face: 0 }, ex + 1.2, ez + 0.4, 0.8, { id: 'staff', who: 'luchko', label: 'Мл. лейтенант Лучко — инженеры' });
     this.engineers = [0, 1, 2].map((i) => this.spawn({ look: 'eng', pose: 'work' }, ex + 1.5 + i * 0.6, ez + 1.6, 3.1, { id: 'soldier', role: 'eng', label: 'Сапёр' }));
-    // --- взводы ---
-    this.units = {};
+    // --- взводы живут в army.js; здесь — только противник в захваченных секторах ---
     this.enemies = {};
     this.officerNpc = {};
+    this.army = null;
     // --- эффекты ---
     this.flash = lights.add(new THREE.Vector3(0, -50, 0), 0xffd0a0, 30, 0); this.flash.priority = true;
     this.flare = lights.add(new THREE.Vector3(0, -50, 0), 0xe8ffe0, 60, 0); this.flare.priority = true;
@@ -54,7 +54,13 @@ export class Life {
     this.flareMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), mat({ color: 0, emissive: 0xf0ffe8, outdoor: true, side: THREE.DoubleSide }));
     this.flareMesh.visible = false; scene.add(this.flareMesh);
     this.bursts = Array.from({ length: 4 }, () => { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4, 0), mat({ color: 0, emissive: 0xffa040, outdoor: true })); b.visible = false; scene.add(b); return { m: b, t: 0 }; });
-    this.smoke = Array.from({ length: 6 }, () => { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(1.6, 0), mat({ color: 0x3a3632, outdoor: true, transparent: true, opacity: 0.8, depthWrite: false })); b.visible = false; scene.add(b); return { m: b, t: 0 }; });
+    // воронки: следы разрывов остаются на местности
+    const crM = mat({ color: 0x2a2219, outdoor: true });
+    const crG = new THREE.CylinderGeometry(1, 1.15, 0.06, 7);
+    this.craters = Array.from({ length: 36 }, () => { const m = new THREE.Mesh(crG, crM); m.visible = false; scene.add(m); return m; });
+    this.craterI = 0;
+    this.battleSmokeT = 0;
+    this.smoke = Array.from({ length: 12 }, () => { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(1.6, 0), mat({ color: 0x3a3632, outdoor: true, transparent: true, opacity: 0.8, depthWrite: false })); b.visible = false; scene.add(b); return { m: b, t: 0 }; });
     this.flareT = 0; this.nextFlare = 5; this.shake = 0; this.lampV = 0; this.lampA = 0;
     this.pendingFx = [];
     this.seenDeliveries = new Set(); this.seenIncoming = new Set();
@@ -69,6 +75,7 @@ export class Life {
       { o: { look: 'signal', pose: 'phone' }, at: [-11.2, 0.6], face: [-12, 0.6], label: 'Связист у линии', role: 'signal' },
       { o: { look: 'supply', head: 'ushanka', pose: 'papers' }, at: [SPOTS.depot[0] - 3.4, SPOTS.depot[1] - 0.6], face: [SPOTS.depot[0] - 3.5, SPOTS.depot[1] - 1.6], label: 'Кладовщик', role: 'depot' },
       { o: { look: 'soldier', head: 'pilotka', pose: 'work' }, at: [-2.4, 7.4], face: [-2.7, 6.7], label: 'Боец у бочек с водой', role: 'walk' },
+      { o: { look: 'soldier', rifle: true, pose: 'stand' }, at: [-8.6, 4.5], out: true, label: 'Часовой у входа в штаб', role: 'sentry' },
     ];
     for (const s of st) {
       const p = this.spawn(s.o, s.at[0], s.at[1], 0, { id: 'soldier', role: s.role, label: s.label });
@@ -81,6 +88,14 @@ export class Life {
       const b = this.spawn({ look: 'soldier', rifle: true }, bx, bz, Math.atan2(ax - bx, az - bz), { id: 'soldier', role: 'walk', label: 'Боец' });
       this.chats.push({ a, b, t: 0, who: 0 });
     }
+    // связные штаба: носят приказы на участки, в командирский блиндаж, на склад
+    this.couriers = [0, 1].map((i) => {
+      const home = [-9.8 + i * 0.9, 3.1];
+      const p = this.spawn({ look: 'soldier', head: 'pilotka' }, home[0], home[1], Math.PI / 2, { id: 'soldier', role: 'runner', label: 'Связной штаба' });
+      const w = new Walker(p, floorAt); w.speed = 2.7;
+      return { p, w, home, t: 20 + i * 35, job: null, phase: 'idle' };
+    });
+    this.courierJobs = [];
     this.stationSpots = st.map((s) => s.at).concat([SPOTS.campfire, SPOTS.res.hq, [-10.5, 1.8], [7.4, 6.5], [SPOTS.engYard[0] - 1, SPOTS.engYard[1] + 2]]);
     const wl = [{ look: 'soldier', rifle: true }, { look: 'supply', head: 'pilotka', pose: 'carry' }, { look: 'signal' }, { look: 'soldier', head: 'pilotka', pose: 'papers' }];
     this.wanderers = wl.map((o) => { const p = this.spawn(o, 0, 10, 0, { id: 'soldier', role: o.look === 'supply' ? 'carrier' : o.look === 'signal' ? 'signal' : 'walk', label: o.look === 'signal' ? 'Связист' : o.look === 'supply' ? 'Боец хозвзвода' : 'Боец' }); const w = new Walker(p, floorAt); this.walkers.push({ w, p, wander: true }); return p; });
@@ -114,121 +129,14 @@ export class Life {
   }
   endWalk(item) { this.remove(item.p); this.walkers = this.walkers.filter((x) => x !== item); }
 
-  // ---------- подразделения ----------
-  unitSpots(sim, p) {
-    const w = p.where;
-    if (w.type === 'sector') {
-      const sp = SECTOR_POS[w.s];
-      const sec = sim.sectors[w.s];
-      const line = sec.held === 'line2' ? sp.line2 : sp.line1;
-      return { line, s: w.s, dug: sp.dug, combat: !!(sec.op && sec.op.phase === 'active'), out: sp.outward, mg: sec.held === 'line1' ? sp.mg : [] };
-    }
-    if (w.type === 'res') {
-      const c = SPOTS.res[w.loc];
-      const ring = Array.from({ length: 8 }, (_, i) => { const a = i / 8 * Math.PI * 2; return [c[0] + Math.sin(a) * 1.8, c[1] + Math.cos(a) * 1.8]; });
-      return { res: true, line: w.loc === 'center' ? Array.from({ length: 8 }, (_, i) => { const a = i / 8 * Math.PI * 2; return [SPOTS.campfire[0] + Math.sin(a) * 1.7, SPOTS.campfire[1] + Math.cos(a) * 1.7]; }) : ring, center: w.loc === 'center' ? SPOTS.campfire : c };
-    }
-    return null;
-  }
-
-  syncUnits(sim, cam) {
-    for (const p of Object.values(sim.platoons)) {
-      let u = this.units[p.id];
-      if (!u) {
-        u = this.units[p.id] = { men: Array.from({ length: 8 }, () => this.spawn({ look: 'soldier', rifle: true }, 0, -200, 0, { id: 'soldier', role: 'line', unit: p.id, label: `Боец (${p.name})` })), state: '', column: null, moveKey: null };
-      }
-      const sp = this.unitSpots(sim, p);
-      const key = p.where.type === 'move' ? 'move' : sp ? `${sp.s || 'res'}|${sp.res ? p.where.loc : sim.sectors[sp.s].held}|${sp.combat}|${Math.ceil(p.men / 4)}` : 'none';
-      const show = Math.min(8, Math.ceil(p.men / 4));
-      if (p.where.type === 'move') {
-        // колонна идёт по траншеям
-        for (const m of u.men) m.root.visible = false;
-        const mk = p.where.eta + '|' + JSON.stringify(p.where.to);
-        if (u.moveKey !== mk) {
-          u.moveKey = mk;
-          if (u.column) for (const it of u.column) this.endWalk(it);
-          u.column = [];
-          const from = this.posOf(sim, p.where.from);
-          const to = this.posOf(sim, p.where.to.sector ? { type: 'sector', s: p.where.to.sector } : { type: 'res', loc: p.where.to.loc || 'center' });
-          const realSec = Math.max(20, (p.where.eta - sim.t) / 0.5 * 0.9); // сек реального времени
-          const len = this.path(from, to).reduce((a, b, i, arr) => a + (i ? dist2(arr[i - 1], b) : 0), 0);
-          for (let i = 0; i < Math.min(5, show); i++) {
-            const it = this.walk({ look: 'soldier', rifle: true }, V(from.x - i * 0.3, from.z), to, (x) => this.endWalk(x), Math.max(0.8, len / realSec), { id: 'soldier', role: 'march', unit: p.id, label: `Боец (${p.name}, на марше)` });
-            it.delay = i * 0.9; it.p.root.visible = false;
-            u.column.push(it);
-          }
-        }
-        continue;
-      }
-      if (u.column) { for (const it of u.column) if (this.walkers.includes(it)) this.endWalk(it); u.column = null; u.moveKey = null; }
-      if (u.state === key) { this.animUnit(sim, p, u, sp); continue; }
-      u.state = key;
-      u.men.forEach((m, i) => {
-        m.downT = 0;
-        m.sector = sp && !sp.res ? sp.s : null;
-        if (!sp || i >= show) { m.root.visible = false; return; }
-        m.root.visible = true;
-        let x, z, ry = 0, pose = 'stand';
-        if (sp.res) {
-          const [a, b] = sp.line[i % sp.line.length]; x = a; z = b;
-          ry = Math.atan2(sp.center[0] - x, sp.center[1] - z); pose = sim.night > 0.5 || i % 3 ? 'sit' : (i % 2 ? 'stand' : 'papers');
-        } else if (i < show - 2 || show <= 2) {
-          // на огневых позициях
-          const spots = [...sp.mg, ...sp.line];
-          const [a, b] = spots[(i * 3) % spots.length];
-          x = a + (Math.random() - 0.5) * 0.5; z = b + (Math.random() - 0.5) * 0.5;
-          ry = Math.atan2(sp.out[0] * 1 + (x / 60) * 0, sp.out[1]);
-          ry = Math.atan2(x, z); // лицом наружу (от штаба)
-          pose = sp.combat ? ['fire', 'aim', 'crouch'][i % 3] : ['aim', 'stand', 'stand', 'crouch'][i % 4];
-        } else {
-          // отдыхают в блиндаже
-          const ref = this.T.dugouts[sp.dug.id];
-          const b = ref.bunks[i % ref.bunks.length];
-          x = b[0]; z = b[2]; ry = b[3]; pose = 'sit';
-          m.root.position.set(x, b[1] - 0.48, z); m.root.rotation.y = ry; setPose(m, pose); return;
-        }
-        m.root.position.set(x, floorAt(x, z), z); m.root.rotation.y = ry; setPose(m, pose);
-      });
-      this.animUnit(sim, p, u, sp);
-    }
-    // офицеры
-    for (const o of Object.values(sim.officers)) {
-      let n = this.officerNpc[o.id];
-      const p = sim.P(o.unit);
-      const hide = !o.alive || o.inHQ || !p || p.men <= 0 || p.where.type === 'move';
-      if (!n) {
-        if (hide) continue;
-        n = this.officerNpc[o.id] = this.spawn({ look: 'officer', head: o.look?.cap === false ? 'pilotka' : 'cap', beard: o.look?.beard, pale: o.look?.pale, face: o.look?.face }, 0, -200, 0, { id: 'officer', oid: o.id, label: o.name });
-      }
-      n.root.visible = !hide;
-      if (hide) continue;
-      const sp = this.unitSpots(sim, p);
-      let x, z;
-      if (sp && sp.res) { x = sp.center[0] + 2.4; z = sp.center[1]; }
-      else if (sp) {
-        const ref = this.T.dugouts[sp.dug.id];
-        if (sp.combat) { const near = sp.line.reduce((a, b) => (Math.hypot(b[0] - ref.d.center[0], b[1] - ref.d.center[1]) < Math.hypot(a[0] - ref.d.center[0], a[1] - ref.d.center[1]) ? b : a)); x = near[0] - sp.out[0] * 0.5; z = near[1] - sp.out[1] * 0.5; }
-        else { x = ref.spots.officer[0]; z = ref.spots.officer[2]; }
-      }
-      if (x !== undefined && (Math.abs(n.root.position.x - x) > 0.01 || Math.abs(n.root.position.z - z) > 0.01)) n.root.position.set(x, floorAt(x, z), z);
-      tmp.set(cam.x - n.root.position.x, 0, cam.z - n.root.position.z);
-      if (tmp.length() < 6) n.root.rotation.y = Math.atan2(tmp.x, tmp.z);
-      const hasMsg = sim.inbox.some((m) => m.route === 'player' && !m.done && m.unit === o.unit && sim.t >= m.arrive);
-      this.tag(n, { id: 'officer', oid: o.id, label: hasMsg ? `${o.short} — хочет доложить` : o.name });
-      if (hasMsg) n.talk = 0.3;
-    }
-    // противник в захваченных секторах
+  // ---------- противник в захваченных секторах ----------
+  syncLost(sim) {
     for (const s of ['N', 'E', 'S', 'W']) {
       const lost = sim.sectors[s].held === 'lost';
       if (lost && !this.enemies[s]) {
         this.enemies[s] = SECTOR_POS[s].line1.filter((_, i) => i % 3 === 1).slice(0, 4).map(([x, z]) => this.spawn({ look: 'enemy', rifle: true, pose: 'aim' }, x, z, Math.atan2(-x, -z), { id: 'enemy', label: 'Противник' }));
       } else if (!lost && this.enemies[s]) { for (const e of this.enemies[s]) this.remove(e); delete this.enemies[s]; }
     }
-  }
-
-  animUnit(sim, p, u, sp) {
-    if (!sp || !sp.combat) return;
-    for (const m of u.men) if (m.root.visible && m.pose === 'aim' && Math.random() < 0.02) this.muzzle(m.root.position.x + Math.sin(m.root.rotation.y) * 0.9, m.root.position.y + 1.45, m.root.position.z + Math.cos(m.root.rotation.y) * 0.9);
   }
 
   posOf(sim, w) {
@@ -437,6 +345,47 @@ export class Life {
     this.gGo(st);
   }
 
+  /** События цепи командования: приказ связным — бежит связной; совещание — связной в командирский блиндаж. */
+  onChainEvent(sim, ev) {
+    const D = this.T.dugouts;
+    if (ev.type === 'order' && ev.via === 'связным') {
+      const ref = D[{ N: 'dugN', E: 'dugE', S: 'dugS', W: 'dugW' }[ev.s]];
+      if (ref) this.courierJobs.unshift({ to: ref.spots.door, what: `несёт приказ на ${{ N: 'северный', E: 'восточный', S: 'южный', W: 'западный' }[ev.s]} участок`, urgent: true });
+    }
+    if (ev.type === 'meeting' && D.cmd) this.courierJobs.unshift({ to: D.cmd.spots.door, what: 'несёт сводку в командирский блиндаж', urgent: true });
+  }
+
+  updateCouriers(dt, sim) {
+    const D = this.T.dugouts;
+    for (const c of this.couriers) {
+      c.w.update(dt);
+      if (c.phase === 'idle') {
+        c.t -= dt;
+        if (c.t > 0 && !this.courierJobs.length) continue;
+        let job = this.courierJobs.shift();
+        if (!job && c.t <= 0) {
+          const opts = [[D.cmd?.spots.door, 'несёт донесение в командирский блиндаж'], [D.dugN.spots.door, 'несёт пакет на северный участок'], [D.dugE.spots.door, 'несёт пакет на восточный участок'], [D.dugS.spots.door, 'несёт пакет на южный участок'], [[SPOTS.depot[0] + 1.5, SPOTS.depot[1] + 1.5], 'несёт заявку на склад'], [D.med.spots.door, 'несёт записку в медпункт'], [[SPOTS.engYard[0] + 0.5, SPOTS.engYard[1] + 1.5], 'несёт приказ сапёрам']].filter((o) => o[0]);
+          const [to, what] = opts[(Math.random() * opts.length) | 0];
+          job = { to, what };
+        }
+        if (!job) continue;
+        c.job = job; c.phase = 'go';
+        setPose(c.p, 'stand'); c.w.speed = job.urgent ? 3.3 : 2.4;
+        this.tag(c.p, { id: 'soldier', role: 'runner', label: `Связной штаба — ${job.what}` });
+        const pos = c.p.root.position;
+        c.w.go(this.path(V(pos.x, pos.z), V(job.to[0], job.to[1])), () => { c.phase = 'hand'; c.t = 3.5; setPose(c.p, 'report'); c.p.talk = 2; });
+      } else if (c.phase === 'hand') {
+        c.t -= dt;
+        if (c.t <= 0) {
+          c.phase = 'back'; setPose(c.p, 'stand'); c.w.speed = 2.2;
+          this.tag(c.p, { id: 'soldier', role: 'runner', label: 'Связной штаба — возвращается' });
+          const pos = c.p.root.position;
+          c.w.go(this.path(V(pos.x, pos.z), V(c.home[0], c.home[1])), () => { c.phase = 'idle'; c.t = 60 + Math.random() * 90; setPose(c.p, Math.random() < 0.5 ? 'sit' : 'stand'); c.p.wantYaw = Math.PI / 2; this.tag(c.p, { id: 'soldier', role: 'runner', label: 'Связной штаба — ждёт поручений' }); });
+        }
+      }
+    }
+  }
+
   /** Работа штаба: Орлов ходит к карте, связисты отвечают на вызовы, писарь печатает. */
   hqLife(dt, sim) {
     const S = this.W.refs.spots;
@@ -478,8 +427,16 @@ export class Life {
       b.m.position.set(at.x, y + 0.8, at.z); b.m.visible = true; b.t = 0.2;
       const s = this.smoke.find((q) => q.t <= 0) || this.smoke[0];
       s.m.position.set(at.x, y + 1, at.z); s.m.visible = true; s.t = 4; s.m.scale.setScalar(0.6);
+      if (Math.hypot(at.x, at.z) > 15) this.crater(at.x, at.z);
       this.flash.pos.set(at.x, y + 3, at.z); this.flash.intensity = 2.2; this.flash.range = 28;
     }
+  }
+
+  crater(x, z) {
+    const c = this.craters[this.craterI++ % this.craters.length];
+    const r = 0.55 + Math.random() * 0.6;
+    c.position.set(x, floorAt(x, z) + 0.035, z); c.scale.set(r, 1, r * (0.8 + Math.random() * 0.4)); c.rotation.y = Math.random() * 3;
+    c.visible = true;
   }
 
   dustBurst(k) {
@@ -502,12 +459,22 @@ export class Life {
       const inside = sim.player.zone === 'hq' || sim.player.zone.startsWith('dug');
       this.boom(at, Math.min(1, d / 90) * (inside ? 0.85 : 1) + (inside ? 0.12 : 0));
     }
+    if (fx.type === 'friendlyArty' && fx.sector) {
+      // наша артиллерия кладёт снаряды по скоплению противника
+      const [x, z] = polar(R_FRONT + 18 + Math.random() * 14, { N: 0, E: 90, S: 180, W: 270 }[fx.sector] + (Math.random() - 0.5) * 50);
+      this.boom(V(x, z), Math.min(1, Math.hypot(x - cam.x, z - cam.z) / 90));
+    }
+    if (fx.type === 'skirmish' && fx.sector) {
+      // короткая ночная перестрелка у проволоки
+      this.audio.mg(Math.min(1, Math.hypot(cam.x, cam.z) / 120));
+      this.flareT = 0; this.nextFlare = 0;
+    }
     if (fx.type === 'relocate') for (let i = 0; i < 3; i++) this.boom(V(cam.x + 4, cam.z), 0.1);
     if (fx.type === 'plane') this.audio.boom(1);
   }
 
   update(dt, t, sim, cam) {
-    this.syncUnits(sim, cam);
+    this.syncLost(sim);
     this.syncTasks(sim);
     this.syncMessengers(sim, cam);
     for (const it of [...this.walkers]) {
@@ -523,7 +490,7 @@ export class Life {
       if (!p.far && p.root.visible) animate(p, dt, t);
     }
     this.hqLife(dt, sim);
-    for (const u of Object.values(this.units)) for (const m of u.men) if (m.downT > 0) { m.downT -= dt; if (m.downT <= 0) m.root.visible = false; }
+    this.updateCouriers(dt, sim);
     const nightK = nightness(sim.t);
     for (const l of this.T.dynamic.lanterns || []) l.intensity = 0.65 * Math.min(1, nightK * 1.5 + 0.1);
     // разговоры по очереди
@@ -568,6 +535,7 @@ export class Life {
       for (const g of dep.mg[s]) g.visible = !!p && p.men > 8 && sim.sectors[s].held === 'line1';
     }
     dep.fire.scale.y = 0.8 + Math.random() * 0.4;
+    if (Math.hypot(cam.x - 9.7, cam.z + 4.9) < 110) waveFlag(this.W, t, 0.8 + Math.sin(t * 0.13) * 0.3);
 
     // события симуляции
     for (const fx of sim.fx.splice(0)) {
@@ -586,6 +554,18 @@ export class Life {
       const d = Math.min(1, Math.hypot(x - cam.x, z - cam.z) / 110);
       k = Math.max(k, Math.min(1, op.str / 150));
       nearest = Math.min(nearest, d);
+    }
+    // дым над участками, где идёт бой
+    this.battleSmokeT -= dt;
+    if (this.battleSmokeT <= 0) {
+      this.battleSmokeT = 1.2;
+      for (const s of ['N', 'E', 'S', 'W']) {
+        const op = sim.sectors[s].op;
+        if (!op || op.phase !== 'active') continue;
+        const [x, z] = polar(R_FRONT + 3 + Math.random() * 16, { N: 0, E: 90, S: 180, W: 270 }[s] + (Math.random() - 0.5) * 60);
+        const sm = this.smoke.find((q) => q.t <= 0);
+        if (sm) { sm.m.position.set(x, baseGround(x, z) + 0.8, z); sm.m.visible = true; sm.t = 5; sm.m.scale.setScalar(0.6); }
+      }
     }
     const push = sim.hq.pushOp && sim.hq.pushOp.phase === 'active';
     const inside = sim.player.zone === 'hq' || sim.player.zone.startsWith('dug');
