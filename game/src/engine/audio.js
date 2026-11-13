@@ -126,6 +126,37 @@ export class Audio {
     else this._noiseBurst(t, run ? 0.08 : 0.1, 240 + Math.random() * 140, run ? 0.14 : 0.1, 'lowpass');
   }
 
+  /** Патефон: старый вальс с треском пластинки. */
+  gramophone(on) {
+    if (!this.ctx) return false;
+    if (this.gram) { clearInterval(this.gram.iv); this.gram.g.disconnect(); this.gram = null; if (on !== true) return false; }
+    if (on === false) return false;
+    const c = this.ctx;
+    const g = c.createGain(); g.gain.value = 0.05;
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.6;
+    g.connect(f); f.connect(this.master);
+    const tune = [67, 71, 74, 74, 72, 71, 69, 0, 69, 72, 76, 76, 74, 72, 71, 0, 67, 71, 74, 79, 78, 76, 74, 72, 71, 69, 67, 0];
+    const bass = [43, 50, 50, 45, 52, 52, 43, 50, 50, 38, 45, 45];
+    let i = 0;
+    const beat = 0.36;
+    const tick = () => {
+      const t = c.currentTime + 0.05;
+      const n = tune[i % tune.length], b = bass[i % bass.length];
+      const note = (m, dur, vol, type) => {
+        if (!m) return;
+        const o = c.createOscillator(); o.type = type; o.frequency.value = 440 * Math.pow(2, (m - 69) / 12);
+        const e = c.createGain(); e.gain.setValueAtTime(0.0001, t); e.gain.exponentialRampToValueAtTime(vol, t + 0.02); e.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(e); e.connect(g); o.start(t); o.stop(t + dur + 0.05);
+      };
+      note(n, beat * 0.95, 0.5, 'triangle');
+      note(b, beat * 0.6, 0.35, 'sine');
+      if (Math.random() < 0.5) this._noiseBurst(t, 0.03, 4000, 0.012, 'highpass');
+      i++;
+    };
+    this.gram = { g, iv: setInterval(tick, beat * 1000) };
+    return true;
+  }
+
   resume() { if (this.ctx && this.ctx.state !== 'running') this.ctx.resume(); }
   suspend() { if (this.ctx) this.ctx.suspend(); }
 

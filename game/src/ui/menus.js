@@ -691,4 +691,25 @@ export class Menus {
     if (o.shaky) l.push('издёрган, может ошибиться в докладе');
     return l.join(', ');
   }
+
+  // ---------- жилые комнаты ----------
+  photo() {
+    return { hdr: ['Фотография', ''], text: 'Пожелтевший снимок: женщина в светлом платке и мальчишка лет семи на крыльце. На обороте карандашом: «Ждём. Береги себя». Вы ставите фотографию на место, ровно.', options: [] };
+  }
+
+  books() {
+    const sim = this.sim;
+    return { hdr: ['Книги', ''], text: 'Устав, наставление по фортификации, растрёпанный томик Толстого, чей-то учебник алгебры — Сомов просил сберечь. Между страниц засушенный лист.', options: [
+      { label: 'Почитать четверть часа', disabled: !!sim.ringing(), fn: () => { sim.update(15); sim.captain.fatigue = Math.max(0, sim.captain.fatigue - 4); return { text: 'Несколько страниц — и голова чуть яснее. Где-то далеко бьёт артиллерия, но здесь тихо.' }; } },
+      hang,
+    ] };
+  }
+
+  samovar() {
+    const sim = this.sim;
+    return { hdr: ['Самовар', ''], text: sim.depot.water > 0.2 ? 'Самовар горячий, на нём заварочный чайник. Гусев следит, чтобы не остывал.' : 'Воды мало — самовар холодный.', options: [
+      { label: 'Налить чаю', disabled: sim.depot.water <= 0.2, fn: () => { sim.update(5); sim.captain.fatigue = Math.max(0, sim.captain.fatigue - 7); sim.depot.water = Math.max(0, sim.depot.water - 0.01); return { text: 'Горячая кружка. Чай с дымком. На пять минут война становится чуть дальше.' }; } },
+      hang,
+    ] };
+  }
 }

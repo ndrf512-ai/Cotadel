@@ -20,7 +20,9 @@ export class Life {
     const S = W.refs.spots;
     this.olya = this.spawn({ look: 'olya', head: 'hair', pale: true, face: 0, pose: 'sitdesk' }, S.olya.x, S.olya.z, Math.PI / 2, { id: 'staff', who: 'olya', label: 'Сержант Мирон — связь' }, 0);
     this.orlov = this.spawn({ look: 'staff', head: 'cap', face: 1, pose: 'sitdesk' }, S.orlov.x, S.orlov.z, 0, { id: 'staff', who: 'orlov', label: 'Начальник штаба Орлов' }, 0);
-    this.gusev = this.spawn({ look: 'soldier', head: 'pilotka', face: 0 }, S.gusev.x, S.gusev.z, -0.6, { id: 'staff', who: 'gusev', label: 'Ординарец Гусев' }, 0);
+    this.gusev = this.spawn({ look: 'soldier', head: 'pilotka', face: 0 }, -1.6, 1.9, -0.6, { id: 'staff', who: 'gusev', label: 'Ординарец Гусев' }, 0);
+    this.gusevW = new Walker(this.gusev, () => 0); this.gusevW.speed = 1.25;
+    this.initGusev();
     this.radioOp = this.spawn({ look: 'signal', head: 'pilotka', pose: 'sitdesk' }, S.radioOp.x, S.radioOp.z, Math.PI / 2, { id: 'soldier', role: 'radio', label: 'Радист' }, 0);
     this.clerk = this.spawn({ look: 'staff', head: 'pilotka', face: 2, pose: 'sitdesk' }, S.clerk.x, S.clerk.z, 0, { id: 'soldier', role: 'clerk', label: 'Писарь штаба' }, 0);
     this.orlovW = new Walker(this.orlov, (x, z) => 0); this.orlovW.speed = 1.1;
@@ -359,6 +361,82 @@ export class Life {
     }
   }
 
+  /** Ординарец: у него свой распорядок по штабу; с докладом сам подходит к капитану. */
+  initGusev() {
+    const N = {
+      A: [-1.6, 1.9], S0: [-2.6, 2.6], B: [-0.5, 0], C: [-1.6, -1.0], D: [-1.55, -2.5], E: [1.0, -0.6],
+      F: [3, 1.9], G: [5.0, 1.9], H: [5.0, 0.05], I: [6.0, 2.9], J2: [6.6, -0.2], J: [6.6, -1.0], K: [7.6, -2.0], L: [9.0, -4.0], M: [9.0, -1.6],
+    };
+    const E = [['A', 'S0'], ['A', 'B'], ['B', 'C'], ['C', 'D'], ['B', 'E'], ['A', 'F'], ['F', 'G'], ['G', 'H'], ['G', 'I'], ['G', 'J2'], ['J2', 'J'], ['J', 'K'], ['K', 'L'], ['K', 'M']];
+    const adj = {}; for (const k in N) adj[k] = [];
+    for (const [a, b] of E) { adj[a].push(b); adj[b].push(a); }
+    this.gN = N; this.gAdj = adj;
+    this.gStations = [
+      { n: 'S0', pose: 'work', face: [-3.18, 3.27], what: 'подкидывает дрова в печку' },
+      { n: 'E', pose: 'papers', face: [2.1, -0.75], what: 'раскладывает бумаги на вашем столе' },
+      { n: 'D', pose: 'papers', face: [-0.5, -2.5], what: 'подточил карандаши у карты' },
+      { n: 'H', pose: 'work', face: [5.0, -0.65], what: 'топит печку в вашей комнате' },
+      { n: 'I', pose: 'work', face: [6.9, 2.95], what: 'заправляет вашу кровать' },
+      { n: 'L', pose: 'work', face: [9.6, -4.6], what: 'ставит самовар' },
+      { n: 'K', pose: 'work', face: [8.0, -3.0], what: 'накрывает на стол' },
+    ];
+    this.gState = { mode: 'go', st: this.gStations[0], t: 0, retarget: 0 };
+    this.gGo(this.gStations[0]);
+  }
+
+  gNearest(x, z) { let best = 'A', bd = 1e9; for (const [k, [nx, nz]] of Object.entries(this.gN)) { const d = (nx - x) ** 2 + (nz - z) ** 2; if (d < bd) { bd = d; best = k; } } return best; }
+  gRoute(from, to) {
+    const prev = { [from]: null }, q = [from];
+    while (q.length) { const c = q.shift(); if (c === to) break; for (const n of this.gAdj[c]) if (!(n in prev)) { prev[n] = c; q.push(n); } }
+    const path = []; for (let c = to; c; c = prev[c]) path.unshift(this.gN[c]);
+    return path.map(([x, z]) => V(x, z));
+  }
+  gGo(st, extra) {
+    const p = this.gusev.root.position;
+    setPose(this.gusev, 'stand');
+    const route = this.gRoute(this.gNearest(p.x, p.z), st ? st.n : this.gNearest(extra.x, extra.z));
+    if (extra) route.push(extra);
+    this.gusevW.go([V(p.x, p.z), ...route], () => {
+      if (!st) return;
+      setPose(this.gusev, st.pose);
+      this.gusev.root.rotation.y = Math.atan2(st.face[0] - this.gusev.root.position.x, st.face[1] - this.gusev.root.position.z);
+      this.gState.mode = 'work'; this.gState.t = 15 + Math.random() * 20;
+    });
+  }
+
+  updateGusev(dt, sim, cam, adj) {
+    const g = this.gusev, gs = this.gState;
+    this.gusevW.update(dt);
+    const inHQ = sim.player.zone === 'hq';
+    const d = Math.hypot(cam.x - g.root.position.x, cam.z - g.root.position.z);
+    if (adj && inHQ) {
+      // доклад: идёт к капитану, останавливается рядом, говорит
+      if (gs.mode !== 'report') { gs.mode = 'report'; gs.retarget = 0; }
+      gs.retarget -= dt;
+      if (d > 1.6 && (gs.retarget <= 0 || !this.gusevW.path.length)) {
+        gs.retarget = 1.5;
+        const dir = Math.atan2(g.root.position.x - cam.x, g.root.position.z - cam.z);
+        this.gGo(null, V(cam.x + Math.sin(dir) * 1.2, cam.z + Math.cos(dir) * 1.2));
+      }
+      if (d <= 1.7) { this.gusevW.path = []; g.walking = false; setPose(g, 'stand'); g.root.rotation.y = Math.atan2(cam.x - g.root.position.x, cam.z - g.root.position.z); g.talk = 0.3; }
+      this.tag(g, { id: 'staff', who: 'gusev', label: 'Гусев — разрешите доложить' });
+      return;
+    }
+    if (gs.mode === 'report') { gs.mode = 'go'; this.gNext(); }
+    if (gs.mode === 'work') {
+      gs.t -= dt;
+      if (gs.t <= 0) this.gNext();
+    }
+    this.tag(g, { id: 'staff', who: 'gusev', label: gs.mode === 'work' ? `Ординарец Гусев — ${gs.st.what}` : 'Ординарец Гусев' });
+  }
+
+  gNext() {
+    const gs = this.gState;
+    let st; do st = this.gStations[(Math.random() * this.gStations.length) | 0]; while (st === gs.st);
+    gs.st = st; gs.mode = 'go';
+    this.gGo(st);
+  }
+
   /** Работа штаба: Орлов ходит к карте, связисты отвечают на вызовы, писарь печатает. */
   hqLife(dt, sim) {
     const S = this.W.refs.spots;
@@ -462,8 +540,7 @@ export class Life {
     }
     // Гусев: доклад
     const adj = sim.pending('adj').length > 0;
-    this.tag(this.gusev, { id: 'staff', who: 'gusev', label: adj ? 'Гусев — разрешите доложить' : 'Ординарец Гусев' });
-    if (adj) { this.gusev.talk = 0.3; tmp.set(cam.x - this.gusev.root.position.x, 0, cam.z - this.gusev.root.position.z); this.gusev.root.rotation.y = Math.atan2(tmp.x, tmp.z); }
+    this.updateGusev(dt, sim, cam, adj);
     const nPend = sim.staff.pendingDecisions().length;
     this.tag(this.orlov, { id: 'staff', who: 'orlov', label: nPend ? `Орлов — ${nPend} вопр. ждут решения` : 'Начальник штаба Орлов' });
     if (nPend) this.orlov.talk = 0.3;
@@ -554,7 +631,7 @@ export class Life {
     G.uFogFar.value = 90 - night * 50;
     G.uAmbientOut.value.setRGB(0.42, 0.46, 0.52).lerp(new THREE.Color(0.05, 0.06, 0.09), night);
     G.uSunCol.value.setRGB(0.36, 0.37, 0.38).multiplyScalar(1 - night);
-    G.uAmbientIn.value.setRGB(0.085, 0.06, 0.042).add(new THREE.Color(0.05, 0.04, 0.03).multiplyScalar(1 - night));
+    G.uAmbientIn.value.setRGB(0.11, 0.08, 0.055).add(new THREE.Color(0.05, 0.04, 0.03).multiplyScalar(1 - night));
     const m = sim.t % 1440;
     L.mHand.rotation.z = -(m % 60) / 60 * Math.PI * 2;
     L.hHand.rotation.z = -((m / 60) % 12) / 12 * Math.PI * 2;

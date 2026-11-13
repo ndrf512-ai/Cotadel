@@ -47,7 +47,8 @@ export function buildHQ(scene, tex, lights) {
       };
       for (const g of list) {
         seg(cur, g[0]);
-        if (g[2] !== undefined) { seg(g[0], g[1], 0, g[2]); if (g[3] !== undefined) seg(g[0], g[1], g[3], H); } // окно: низ и верх
+        if (g[2] === 'open') { /* сплошной проём — стена соседней комнаты */ }
+        else if (g[2] !== undefined) { seg(g[0], g[1], 0, g[2]); if (g[3] !== undefined) seg(g[0], g[1], g[3], H); } // окно: низ и верх
         else seg(g[0], g[1], 2.0, H); // дверь: перемычка
         cur = g[1];
       }
@@ -61,10 +62,10 @@ export function buildHQ(scene, tex, lights) {
   // Комната командира
   room(-4, 3, -5, 0, { n: [[0.2, 1.4, 1.35, 1.65]], e: [[-3.5, -2.0]], s: [[-1.3, 0.3]] });
   // Узел связи
-  room(3, 6, -5, -1, { w: null, s: [] });
+  room(3, 6, -5, -1, { w: null, s: null });
   // стена между КП и связью уже есть (e). Узел связи: своя западная стена не нужна.
   // Предбанник
-  room(-4, 3, 0, 4, { n: null, w: [[1.2, 2.4]] });
+  room(-4, 3, 0, 4, { n: null, w: [[1.2, 2.4]], e: [[1.4, 2.4]] });
   // всё, что ниже, расставлено в старой сетке и затем разносится по просторным комнатам (hqMap)
   const mark = root.children.length, sMark = W.solids.length, lMark = lights.list.length;
 
@@ -137,9 +138,7 @@ export function buildHQ(scene, tex, lights) {
   addI(W, safe, 'safe', 'Сейф');
   W.solids.push([-3, -2.3, -1.0, -0.4]);
   // ящики, винтовки
-  box(root, 0.6, 0.4, 0.4, 2.55, 0.2, -0.45, mCrate);
-  box(root, 0.6, 0.4, 0.4, 2.55, 0.6, -0.45, mCrate, { ry: 0.1 });
-  W.solids.push([2.2, 3, -0.7, -0.2]);
+
   for (let i = 0; i < 3; i++) box(root, 0.04, 1.1, 0.06, -1.3 + i * 0.12, 0.55, -0.08, M('rifle', { color: 0x3a2a1a }), { rx: 0.12 });
   // карта секторов на стене
   const wallMapC = document.createElement('canvas'); wallMapC.width = 64; wallMapC.height = 48;
@@ -175,8 +174,8 @@ export function buildHQ(scene, tex, lights) {
   plane(root, 0.4, 0.5, 5.94, 1.5, -3.0, mat({ map: tex.doc }), { ry: -Math.PI / 2, sx: 1, sy: 1 });
 
   // ---- предбанник ----
-  box(root, 0.5, 0.45, 2.3, 2.7, 0.22, 1.6, mWood); // скамья
-  W.solids.push([2.4, 3, 0.4, 2.8]);
+  box(root, 0.5, 0.45, 1.0, 2.7, 0.22, 2.4, mWood); // скамья (в стороне от двери в комнату капитана)
+  W.solids.push([2.4, 3, 1.9, 2.9]);
   // печка-буржуйка
   cyl(root, 0.25, 0.25, 0.55, 7, -2.3, 0.3, 2.45, mMetalD);
   cyl(root, 0.05, 0.05, 1.8, 5, -2.3, 1.45, 2.45, mMetalD);
@@ -216,7 +215,7 @@ export function buildHQ(scene, tex, lights) {
   W.refs.lampBase = W.refs.lampG.position.clone();
   // большой рабочий стол капитана (новая сетка)
   {
-    const x = 1.25, z = -0.8;
+    const x = 2.1, z = -0.75;
     box(root, 1.7, 0.07, 0.85, x, 0.78, z, mWood);
     for (const [dx, dz] of [[-0.78, -0.36], [0.78, -0.36], [-0.78, 0.36], [0.78, 0.36]]) box(root, 0.08, 0.78, 0.08, x + dx, 0.39, z + dz, mLog);
     box(root, 0.45, 0.6, 0.7, x + 0.55, 0.3, z + 0.02, mWood); // тумба
@@ -234,8 +233,12 @@ export function buildHQ(scene, tex, lights) {
     W.solids.push([x - 0.9, x + 0.9, z - 1.0, z + 0.45]);
   }
   // крыша и земляной массив — уже в новых размерах
-  box(root, 10.8, 0.5, 9.8, 1.0, H + 0.35, -0.5, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
-  box(root, 3.0, H + 0.1, 5.0, 4.5, (H + 0.1) / 2, 1.5, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
+  // ---- жилые комнаты: комната капитана и столовая ----
+  room(3, 7.5, -1, 4, { w: null, n: [[6.1, 7.1]] });
+  room(6, 10, -5, -1, { w: null, s: [[6, 7.5, 'open']] });
+  homeRooms(root, W, lights, tex, { mWood, mLog, mDark, mMetal, mMetalD, mPaper, mBlanket, mCloth, mCrate });
+  box(root, 14.6, 0.5, 9.8, 3.0, H + 0.35, -0.5, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
+  box(root, 2.5, H + 0.1, 5.0, 8.75, (H + 0.1) / 2, 1.5, M('roofEarth', { map: tex.earth, outdoor: true }), { seg: 0.3 });
   for (let i = 0; i < 10; i++) box(root, 0.9, 0.3, 0.5, -3.6 + i * 1.05, H + 0.75, -5.1, mBag, { ry: (i % 3) * 0.05 });
   // ---- пыль ----
   const dustN = 120;
@@ -261,6 +264,7 @@ export function buildHQ(scene, tex, lights) {
     orlovMap: new THREE.Vector3(-0.95, 0, -2.0),
     clerk: new THREE.Vector3(1.0, 0, 2.05),
     gusev: new THREE.Vector3(-1.4, 0, 2.2),
+    start: new THREE.Vector3(4.6, 0, 1.4),
     wounded: [[-1.6, 0.9], [-0.6, 0.9], [0.4, 0.9], [1.4, 0.9], [-1.6, 2.2], [0.4, 2.2]],
   };
   const sp = W.refs.spots;
@@ -270,6 +274,7 @@ export function buildHQ(scene, tex, lights) {
     const [x, z] = hqMap(sp[k].x, sp[k].z); sp[k].x = x; sp[k].z = z;
   }
   sp.door.set(-3.4, 0, 1.8);
+  sp.start.set(4.6, 0, 1.4);
   return W;
 }
 
@@ -357,11 +362,112 @@ function furnish(root, W, lights, tex, m) {
   box(root, 3.0, 0.02, 0.02, 1.5, 2.05, -3.94, mCable);
   box(root, 0.02, 0.02, 3.6, 2.95, 2.05, -2.2, mCable);
   // ящики в углу комнаты командира и патронные цинки
-  box(root, 0.5, 0.25, 0.3, 2.6, 1.0, -0.45, m.mCrate, { ry: 0.3 });
+
   // плакат и график дежурств в предбаннике
   plane(root, 0.5, 0.65, 0.0, 1.5, 2.94, mat({ map: tex.doc }), { ry: Math.PI, sx: 1, sy: 1 });
   plane(root, 0.4, 0.5, 2.94, 1.5, 0.9, mat({ map: tex.doc }), { ry: -Math.PI / 2, sx: 1, sy: 1 });
   // морзянка и вторая рация
   box(root, 0.12, 0.03, 0.08, 5.35, 0.85, -2.85, m.mMetalD);
   box(root, 0.3, 0.25, 0.25, 5.65, 0.96, -3.7, M('radio2', { map: tex.radio, color: 0x9a9a80 }));
+}
+
+/** Жилые комнаты штаба (новая сетка): здесь живут, а не только работают. */
+function homeRooms(root, W, lights, tex, m) {
+  const lampM = mat({ color: 0xffd080, emissive: 0xe0a050 });
+  const glow = mat({ color: 0x401000, emissive: 0xc04010 });
+  const rug = M('rug', { map: tex.blanket, color: 0xc08070 });
+  const books = [M('bk1', { color: 0x6a3a28 }), M('bk2', { color: 0x3a4a6a }), M('bk3', { color: 0x5a5a30 }), M('bk4', { color: 0x4a2a3a })];
+  const solid = (x0, x1, z0, z1) => W.solids.push([x0, x1, z0, z1]);
+  const tag = (o, id, label) => { o.userData.interact = { id, label }; W.interact.push(o); };
+
+  // ===== комната капитана: x 3..7.5, z -1..4 =====
+  // кровать с одеялом и подушкой
+  box(root, 1.0, 0.42, 2.0, 6.9, 0.21, 2.95, m.mWood);
+  box(root, 0.95, 0.12, 1.95, 6.9, 0.48, 2.95, m.mBlanket);
+  box(root, 0.55, 0.12, 0.32, 6.9, 0.6, 3.75, M('pillow2', { color: 0xc0b8a0 }));
+  box(root, 1.0, 0.7, 0.08, 6.9, 0.55, 3.98, m.mLog);
+  const bed = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.6, 2.0), m.mDark); bed.visible = false; bed.position.set(6.9, 0.4, 2.95); root.add(bed);
+  tag(bed, 'cot', 'Кровать — поспать');
+  solid(6.35, 7.5, 1.9, 4);
+  // шкаф для одежды
+  box(root, 0.55, 1.9, 0.9, 7.2, 0.95, 1.15, M('wardrobe', { map: tex.planks, color: 0x9a7050 }));
+  box(root, 0.02, 0.1, 0.02, 6.91, 1.0, 1.0, m.mMetal); box(root, 0.02, 0.1, 0.02, 6.91, 1.0, 1.3, m.mMetal);
+  solid(6.9, 7.5, 0.7, 1.6);
+  // письменный стол у южной стены, стул, лампа, книги, письма
+  box(root, 1.3, 0.06, 0.6, 4.2, 0.76, 3.6, m.mWood);
+  for (const [dx, dz] of [[-0.6, -0.25], [0.6, -0.25], [-0.6, 0.25], [0.6, 0.25]]) box(root, 0.06, 0.76, 0.06, 4.2 + dx, 0.38, 3.6 + dz, m.mLog);
+  box(root, 0.42, 0.45, 0.42, 4.2, 0.22, 3.0, m.mWood); box(root, 0.42, 0.5, 0.06, 4.2, 0.7, 2.8, m.mWood);
+  cyl(root, 0.03, 0.03, 0.25, 5, 3.75, 0.92, 3.75, m.mMetalD); cyl(root, 0.05, 0.12, 0.11, 6, 3.75, 1.08, 3.75, M('shadeRed', { color: 0x6a2a20 }));
+  box(root, 0.06, 0.04, 0.06, 3.75, 1.0, 3.75, lampM);
+  const l1 = lights.add(new THREE.Vector3(3.9, 1.05, 3.5), 0xffb860, 3.6, 1.0); l1.flicker = 0.05;
+  for (let i = 0; i < 4; i++) box(root, 0.2, 0.01, 0.14, 4.35 + i * 0.05, 0.795 + i * 0.004, 3.55, m.mPaper, { ry: i * 0.3 });
+  box(root, 0.3, 0.06, 0.22, 4.7, 0.82, 3.7, books[1]);
+  const photo = box(root, 0.14, 0.18, 0.02, 4.6, 0.9, 3.85, M('frame2', { color: 0x3a2a1a }), { rx: -0.2 });
+  box(root, 0.11, 0.14, 0.005, 4.6, 0.9, 3.838, M('photo2', { color: 0xb8ac90 }), { rx: -0.2 });
+  tag(photo, 'photo', 'Фотография');
+  solid(3.5, 4.9, 2.75, 4);
+  // книжная полка на западной стене
+  for (const y of [1.0, 1.4, 1.8]) box(root, 0.25, 0.04, 1.2, 3.18, y, -0.1, m.mWood);
+  for (let r = 0; r < 3; r++) for (let i = 0; i < 9; i++) box(root, 0.18, 0.24 + (i % 3) * 0.03, 0.08, 3.2, 1.14 + r * 0.4, -0.6 + i * 0.12, books[(i + r) % 4], { rx: i === 8 ? 0.3 : 0 });
+  const shelfHit = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.0, 1.2), m.mDark); shelfHit.visible = false; shelfHit.position.set(3.2, 1.4, -0.1); root.add(shelfHit);
+  tag(shelfHit, 'books', 'Книги');
+  solid(3, 3.35, -0.75, 0.55);
+  // печка-голландка, кресло, столик с патефоном
+  box(root, 0.8, 1.6, 0.6, 5.0, 0.8, -0.65, M('tile', { color: 0xa89880 }));
+  box(root, 0.3, 0.2, 0.02, 5.0, 0.35, -0.34, glow);
+  const ls = lights.add(new THREE.Vector3(5.0, 0.6, 0.0), 0xff7030, 3.4, 0.9); ls.flicker = 0.3;
+  solid(4.55, 5.45, -1, -0.3);
+  box(root, 0.7, 0.4, 0.7, 5.4, 0.2, 0.9, M('armchair', { map: tex.cloth, color: 0x7a5040 }));
+  box(root, 0.7, 0.55, 0.15, 5.4, 0.62, 1.2, M('armchair', {}));
+  box(root, 0.12, 0.25, 0.7, 5.08, 0.45, 0.9, M('armchair', {})); box(root, 0.12, 0.25, 0.7, 5.72, 0.45, 0.9, M('armchair', {}));
+  solid(4.95, 5.85, 0.5, 1.3);
+  box(root, 0.5, 0.05, 0.5, 3.9, 0.6, 0.2, m.mWood); box(root, 0.06, 0.6, 0.06, 3.9, 0.3, 0.2, m.mLog);
+  const gram = new THREE.Group(); gram.position.set(3.9, 0.63, 0.2); root.add(gram);
+  box(gram, 0.32, 0.12, 0.3, 0, 0.06, 0, M('gramBox', { color: 0x5a3020 }));
+  cyl(gram, 0.13, 0.13, 0.01, 10, 0, 0.125, 0, M('record', { color: 0x141414 }));
+  cyl(gram, 0.02, 0.14, 0.3, 8, 0.1, 0.32, -0.08, M('horn', { color: 0x9a8040 }), { rz: 0.6 });
+  tag(gram, 'gramophone', 'Патефон');
+  solid(3.6, 4.2, -0.1, 0.5);
+  // умывальник с зеркалом, полотенце
+  box(root, 0.5, 0.8, 0.4, 3.35, 0.4, 3.3, m.mWood); solid(3, 3.62, 3.05, 3.55);
+  cyl(root, 0.18, 0.12, 0.1, 8, 3.35, 0.85, 3.3, m.mMetal);
+  box(root, 0.02, 0.3, 0.22, 3.08, 1.5, 3.3, M('mirror2', { color: 0x8a9a9a }));
+  box(root, 0.02, 0.45, 0.22, 3.08, 1.05, 2.9, M('towel', { color: 0xd0c8b0 }));
+  // ковёр, шинель на гвозде, фотографии на стене, сапоги у кровати
+  box(root, 2.0, 0.012, 1.4, 5.2, 0.01, 2.0, rug);
+  box(root, 0.08, 1.0, 0.45, 7.42, 1.35, -0.75, M('coat3', { map: tex.cloth, color: 0x7a7060 }));
+  for (let i = 0; i < 3; i++) box(root, 0.18, 0.22, 0.02, 4.0 + i * 0.5, 1.6, 3.96, M('frame3', { color: 0x3a2a1a }));
+  box(root, 0.12, 0.35, 0.25, 6.2, 0.17, 3.7, M('boots', { color: 0x1a1612 })); box(root, 0.12, 0.35, 0.25, 6.05, 0.17, 3.7, M('boots', {}));
+  const l2 = lights.add(new THREE.Vector3(5.2, 1.9, 1.6), 0xffb060, 5.5, 1.15); l2.flicker = 0.08;
+  cyl(root, 0.06, 0.08, 0.12, 6, 5.2, 2.05, 1.6, lampM);
+
+  // ===== столовая: x 6..10, z -5..-1 =====
+  box(root, 2.4, 0.07, 0.9, 8.0, 0.76, -3.0, m.mWood);
+  for (const [dx, dz] of [[-1.1, -0.38], [1.1, -0.38], [-1.1, 0.38], [1.1, 0.38]]) box(root, 0.07, 0.76, 0.07, 8.0 + dx, 0.38, -3.0 + dz, m.mLog);
+  for (const dz of [-0.75, 0.75]) box(root, 2.3, 0.06, 0.3, 8.0, 0.45, -3.0 + dz, m.mWood);
+  solid(6.7, 9.3, -3.95, -2.05);
+  for (let i = 0; i < 5; i++) { cyl(root, 0.04, 0.035, 0.08, 6, 7.1 + i * 0.45, 0.83, -3.0 + (i % 2 ? 0.2 : -0.2), M('mug3', { color: [0x5a6a5a, 0x6a5a4a, 0x8a8070][i % 3] })); }
+  cyl(root, 0.2, 0.2, 0.03, 8, 8.0, 0.8, -3.0, m.mMetal); // миска с хлебом
+  box(root, 0.18, 0.1, 0.12, 8.0, 0.86, -3.0, M('bread', { color: 0x8a6030 }));
+  // самовар на тумбе
+  box(root, 0.6, 0.75, 0.45, 9.6, 0.37, -4.6, m.mWood);
+  cyl(root, 0.16, 0.2, 0.42, 8, 9.6, 0.97, -4.6, M('samovar', { color: 0xb08040 }));
+  cyl(root, 0.05, 0.05, 0.15, 6, 9.6, 1.25, -4.6, M('samovar', {}));
+  const sam = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 0.6), m.mDark); sam.visible = false; sam.position.set(9.6, 0.9, -4.6); root.add(sam);
+  tag(sam, 'samovar', 'Самовар');
+  solid(9.25, 10, -5, -4.3);
+  // полки с посудой, печка, рукомойник
+  for (const y of [1.2, 1.6]) box(root, 1.6, 0.04, 0.25, 7.6, y, -4.85, m.mWood);
+  for (let i = 0; i < 7; i++) cyl(root, 0.08, 0.06, 0.05, 7, 6.95 + i * 0.22, 1.25, -4.85, M('plate', { color: 0xc0b8a0 }));
+  for (let i = 0; i < 5; i++) cyl(root, 0.05, 0.05, 0.14, 6, 7.0 + i * 0.3, 1.69, -4.85, M('jar', { color: [0x5a6a40, 0x8a6a40, 0x6a4a3a][i % 3] }));
+  cyl(root, 0.26, 0.26, 0.6, 7, 9.55, 0.3, -1.6, m.mMetalD);
+  cyl(root, 0.05, 0.05, 1.7, 5, 9.55, 1.45, -1.6, m.mMetalD);
+  box(root, 0.16, 0.06, 0.02, 9.3, 0.28, -1.6, glow, { ry: Math.PI / 2 });
+  const l3 = lights.add(new THREE.Vector3(9.3, 0.5, -1.7), 0xff5020, 2.6, 0.7); l3.flicker = 0.35;
+  solid(9.2, 9.9, -2.0, -1.2);
+  const l4 = lights.add(new THREE.Vector3(8.0, 1.9, -3.0), 0xffb060, 5.5, 1.1); l4.flicker = 0.08;
+  cyl(root, 0.07, 0.1, 0.13, 6, 8.0, 2.05, -3.0, lampM);
+  box(root, 0.5, 0.35, 0.4, 6.4, 0.17, -4.6, m.mCrate); box(root, 0.5, 0.35, 0.4, 6.4, 0.52, -4.6, m.mCrate, { ry: 0.15 });
+  solid(6.1, 6.7, -4.85, -4.35);
+  plane(root, 0.5, 0.6, 9.94, 1.5, -3.0, mat({ map: tex.doc }), { ry: -Math.PI / 2, sx: 1, sy: 1 }); // меню/приказ по кухне
 }

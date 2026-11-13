@@ -51,6 +51,13 @@ const life = new Life(scene, W, T, lights, audio);
 const battle = new Battle(scene, audio, life);
 drawWallMap(W.refs.wallMapC); W.refs.wallMapTex.needsUpdate = true;
 const solids = [...W.solids, ...T.solids];
+// точка появления — гарантированно свободная: ищем ближайшее место без предметов
+(() => {
+  const sp = W.refs.spots.start;
+  const free = (x, z) => !solids.some(([x0, x1, z0, z1]) => x > x0 - 0.35 && x < x1 + 0.35 && z > z0 - 0.35 && z < z1 + 0.35);
+  if (free(sp.x, sp.z)) return;
+  for (let r = 0.2; r < 3; r += 0.2) for (let a = 0; a < 6.28; a += 0.4) { const x = sp.x + Math.cos(a) * r, z = sp.z + Math.sin(a) * r; if (free(x, z)) { sp.x = x; sp.z = z; return; } }
+})();
 const interactables = [...W.interact, ...T.interact];
 
 const game = {
@@ -62,8 +69,8 @@ const game = {
 const menus = new Menus(game);
 
 // ----- игрок -----
-const player = new THREE.Vector3(0.2, EYE, -0.6);
-let yaw = 0, pitch = -0.1, bob = 0, stepAcc = 0, zoom = 0, eyeY = EYE, zone = 'hq', lastObserve = {};
+const player = new THREE.Vector3(W.refs.spots.start.x, EYE, W.refs.spots.start.z);
+let yaw = Math.PI / 2, pitch = -0.1, bob = 0, stepAcc = 0, zoom = 0, eyeY = EYE, zone = 'hq', lastObserve = {};
 const R = 0.28;
 
 function blockedBySolid(x, z) {
@@ -73,7 +80,8 @@ function blockedBySolid(x, z) {
 let blockMsgT = 0;
 function canStep(fx, fz, tx, tz) {
   if (Math.hypot(tx, tz) > BOUND_R) { hint('Дальше — проволока и ничейная земля.'); return false; }
-  if (blockedBySolid(tx, tz)) return false;
+  // если игрок всё же оказался внутри предмета — дать выйти (не держать на месте)
+  if (blockedBySolid(tx, tz) && !blockedBySolid(fx, fz)) return false;
   const zn = zoneAt(tx, tz);
   if (game.sim && SECTORS[zn] && Math.hypot(tx, tz) > 44 && game.sim.sectors[zn].held === 'lost') { hint('Там противник. Туда нельзя.'); return false; }
   // крутизна: смотрим на 0,35 м вперёд
@@ -121,6 +129,10 @@ function act(it) {
     case 'soldier': page = menus.soldier(it); break;
     case 'fieldphone': page = menus.fieldPhone(); break;
     case 'personnel': page = menus.personnel(); break;
+    case 'gramophone': { const on = audio.gramophone(); sim.say(on ? 'Патефон зашипел, потом заиграл вальс. В штабе стало тише.' : 'Вы снимаете иглу с пластинки.', null, 4); if (on) sim.captain.fatigue = Math.max(0, sim.captain.fatigue - 3); return; }
+    case 'photo': page = menus.photo(); break;
+    case 'books': page = menus.books(); break;
+    case 'samovar': page = menus.samovar(); break;
     case 'depotStock': page = menus.depotStock(); break;
     case 'medcab': page = menus.medcab(); break;
     case 'binoculars': page = menus.binoculars(); break;

@@ -118,14 +118,14 @@ export function carve(x, z) {
 
 // ---------------- постройки ----------------
 // sunk: пол ниже земли (вход из траншеи); ground: на поверхности
-export const HQ_RECT = [-4, 6, -5, 4];
+export const HQ_RECT = [-4, 10, -5, 4];
 export const DUGOUTS = [
   { id: 'dugN', unitSector: 'N', theme: 'orderly', rect: [2, 7, -35, -31], door: 'w', depth: 1.45, name: 'Блиндаж 1-го взвода' },
   { id: 'dugE', unitSector: 'E', theme: 'trophy', rect: [31, 35, 2, 7], door: 'n', depth: 1.45, name: 'Блиндаж 2-го взвода' },
   { id: 'dugS', unitSector: 'S', theme: 'homely', rect: [-7, -2, 31, 35], door: 'e', depth: 1.45, name: 'Блиндаж 3-го взвода' },
   { id: 'dugW', unitSector: 'W', theme: 'scout', rect: [-35, -31, -7, -2], door: 's', depth: 1.0, name: 'Землянка заставы «Запад»' },
   { id: 'dugR', role: 'reserve', theme: 'barracks', rect: [-15, -10, 6, 10], door: 'e', ground: true, name: 'Укрытие резерва' },
-  { id: 'med', role: 'med', theme: 'med', rect: [8, 14, 4, 9], door: 'w', ground: true, name: 'Медпункт' },
+  { id: 'med', role: 'med', theme: 'med', rect: [10, 15, 6, 11], door: 'w', ground: true, name: 'Медпункт' },
 ];
 for (const d of DUGOUTS) {
   const cx = (d.rect[0] + d.rect[1]) / 2, cz = (d.rect[2] + d.rect[3]) / 2;
@@ -235,7 +235,7 @@ export const SIGNS = [
   { at: polar(11.5, 172), text: ['3 ВЗВОД ↓', 'ЮГ'], face: 180 },
   { at: polar(11.5, 262), text: ['ЗАСТАВА', 'БОЛОТО'], face: 270 },
   { at: [-11.5, 0], text: ['ШТАБ', '← ВХОД'], face: 270 },
-  { at: [7, 2.8], text: ['МЕДПУНКТ', '+'], face: 45 },
+  { at: [8.8, 5.6], text: ['МЕДПУНКТ', '+'], face: 45 },
   { at: [-9.5, -4], text: ['СКЛАД', ''], face: 300 },
   { at: [-8.5, 5], text: ['РЕЗЕРВ', ''], face: 250 },
   { at: polar(R_SECOND + 2.5, 8), text: ['ВТОРАЯ', 'ЛИНИЯ'], face: 0 },

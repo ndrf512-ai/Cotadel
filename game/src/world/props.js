@@ -67,7 +67,7 @@ export function decorate(B, T, lights, tex, mats) {
     B.box('red', 0.035, 0.45, 0.14, x0 - 0.6, G0 + 2.8, z0 + 0.05); B.box('red', 0.035, 0.14, 0.45, x0 - 0.6, G0 + 2.8, z0 + 0.05);
     // носилки и вёдра у входа
     for (let i = 0; i < 2; i++) {
-      const sx = x0 - 2.2, sz = z0 + 0.8 + i * 1.5;
+      const sx = x0 - 1.4, sz = i ? z1 - 0.2 : z0 + 0.2; // по краям, проход к двери свободен
       B.box('canvas', 0.6, 0.05, 1.9, sx, G0 + 0.18, sz);
       for (const dx of [-0.32, 0.32]) B.box('log', 0.05, 0.05, 2.3, sx + dx, G0 + 0.17, sz);
       T.solids.push([sx - 0.4, sx + 0.4, sz - 1.1, sz + 1.1]);
@@ -183,7 +183,7 @@ export function decorate(B, T, lights, tex, mats) {
     T.solids.push([x - 1.6, x + 1.6, z - 1.6, z + 1.6].map((v, i) => i < 2 ? x + (i ? 1 : -1) * (Math.abs(Math.cos(ry)) * 1.5 + 0.3) : z + (i === 3 ? 1 : -1) * (Math.abs(Math.sin(ry)) * 1.5 + 0.3)));
   }
   // фонари на столбах вдоль тыловых троп
-  for (const [x, z] of [[-9.5, 4], [7.5, 2], [-8.5, -9.5], [4, -10], [-2.5, 9]]) {
+  for (const [x, z] of [[-9.5, 4], [11.5, 2.5], [-8.5, -9.5], [4, -10], [-2.5, 9]]) {
     B.box('post', 0.08, 2.2, 0.08, x, G0 + 1.1, z);
     B.box('iron', 0.18, 0.22, 0.18, x + 0.2, G0 + 2.0, z);
     const l = lights.add(new THREE.Vector3(x + 0.2, G0 + 1.9, z), 0xffb060, 5, 0.55); l.flicker = 0.12; l.night = true;
